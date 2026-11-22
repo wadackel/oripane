@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# A test host beside the owner's Oripane.app on 47800/47801: a fixed state dir, port 47940, the
+# synthetic source, input logged instead of injected, no Bonjour, pairings approved unasked
+# (only with the synthetic source, below).
+#   tools/testhost run [options]  build the host (release) and run it in the foreground; start it
+#                                 with the agent tool's background mode. Options go to
+#                                 `oripane-host run` ahead of the defaults, so --port, --source or
+#                                 --mode replace them; --dry-run-input and --no-bonjour always
+#                                 apply, --auto-approve only with the test source
+#   tools/testhost wait [s]       until the host listens; fails on a failure line, when the host
+#                                 is gone, or after s seconds (default 180, the build included)
+#   tools/testhost stop           SIGINT the host (SIGTERM while it builds) and wait up to 15 s
+#   tools/testhost log [n]        the last n lines of the host's log (default 40)
+# State dir (pid, host.log, pairings): $ORIPANE_TESTHOST_DIR, else oripane-testhost in the
+# per-user temp dir, the same inside and outside the devShell.
+# --source screen captures the owner's screen: the terminal running the agent needs Screen
+# Recording access, or the host logs `permission screen_recording=missing` and exits, and macOS
+# may ask the owner on screen. Always pair it with --mode mirror; without it the host adds a
+# virtual display to the owner's Mac. Any source but test runs with no --auto-approve and keeps
+# its pairings in <state dir>/approved-on-terminal, so no pairing approved unasked, by anyone on
+# the LAN or tailnet, can watch the screen: the host asks for `y` on stdin (feed it from a fifo
+# once the code on the emulator matches the log) and refuses with no terminal.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd -P)"
+self="$root/tools/testhost"
+exe="$root/host/.build/release/oripane-host"
+# Not TMPDIR: each `nix develop -c` sets a new one, and a stop from there would miss the pid file.
+tmp="$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)"
+dir="${ORIPANE_TESTHOST_DIR:-${tmp%/}/oripane-testhost}"
+pidfile="$dir/pid"
+log="$dir/host.log"
+
+usage() { sed -n '2,22p' "$self"; exit 2; }
+
+# The pid file's process, but only while it is a run of this script (building) or the host one
+# became: a pid since reused by another process must never get a signal. Any checkout's run
+# counts, not only this one's, since all of them share the default state dir and port.
+live_pid() {
+  local pid cmd
+  pid="$(cat "$pidfile" 2>/dev/null)" || return 1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  cmd="$(ps -ww -o command= -p "$pid" 2>/dev/null)" || return 1
+  case "$cmd" in
+    /*/host/.build/release/oripane-host" run "*" --dry-run-input --no-bonjour"* | *bash" "/*/tools/testhost" run"*) echo "$pid" ;;
+    *) return 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  run)
+    # Under its absolute path, so live_pid recognises this process while it builds.
+    [ "$0" = "$self" ] || exec "$self" "$@"
+    shift
+    # The source the host will see: the first --source, in the same argv, value included. This
+    # matches the host only because its parser refuses --source as another option's value.
+    source="" prev=""
+    for a in "$@" --port 47940 --source test; do
+      [ "$prev" = --source ] && { source="$a"; break; }
+      prev="$a"
+    done
+    if [ "$source" = test ]; then
+      approve=--auto-approve
+      state="$dir"
+    else
+      approve=""
+      state="$dir/approved-on-terminal"
+      for a in "$@"; do
+        if [ "$a" = --auto-approve ]; then
+          echo "--auto-approve is for the test source only: with --source $source anyone could pair and watch" >&2
+          exit 2
+        fi
+      done
+    fi
+    if pid="$(live_pid)"; then
+      echo "a test host is running (pid $pid); tools/testhost stop ends it" >&2
+      exit 1
+    fi
+    mkdir -p "$dir"
+    rm -f "$pidfile"
+    # Emptied before the pid is written: wait reads the log once it sees a live pid, and must not
+    # take the last run's lines for this one's.
+    : >"$log"
+    echo $$ >"$pidfile"
+    # A stop during the build has to end the run here: bash holds a signal until the build it
+    # waits on in the foreground ends, and then goes on to start the host.
+    build=""
+    trap 'kill "$build" 2>/dev/null; wait "$build" 2>/dev/null; rm -f "$pidfile"; exit 143' INT TERM
+    # Apple's swift even from inside the devShell, which points these at nixpkgs' SDK.
+    env -u DEVELOPER_DIR -u SDKROOT swift build -c release --package-path "$root/host" >&2 &
+    build=$!
+    wait "$build"
+    trap - INT TERM
+    export ORIPANE_STATE_DIR="$state"
+    # $approve unquoted: empty, it adds no word (an empty array would trip set -u on bash 3.2).
+    exec "$exe" run "$@" --port 47940 --source test --dry-run-input --no-bonjour $approve 2> >(tee -a "$log")
+    ;;
+  wait)
+    limit="${2:-180}"
+    [[ "$limit" =~ ^[0-9]+$ ]] || usage
+    seen=""
+    while :; do
+      if live_pid >/dev/null; then
+        seen=1
+        if grep -qE 'host failed|control listener_failed' "$log" 2>/dev/null; then
+          grep -E 'host failed|control listener_failed' "$log" >&2
+          exit 1
+        fi
+        grep -q 'control listening port=' "$log" 2>/dev/null && exit 0
+      elif [ -n "$seen" ] || [ "$SECONDS" -ge 10 ]; then # a run just started may have no pid yet
+        echo "no test host is running; a failed build shows in the output of tools/testhost run" >&2
+        tail -n 5 "$log" >&2 2>/dev/null || true
+        exit 1
+      fi
+      if [ "$SECONDS" -ge "$limit" ]; then
+        echo "the test host did not listen within $limit s" >&2
+        exit 1
+      fi
+      sleep 0.5
+    done
+    ;;
+  stop)
+    if ! pid="$(live_pid)"; then
+      rm -f "$pidfile"
+      exit 0
+    fi
+    # The host shuts down on SIGINT, never SIGKILL: its shutdown releases any virtual display it
+    # made. The script, still building, gets SIGTERM, which a start in the background (`&` from
+    # a script) does not ignore the way it ignores SIGINT.
+    case "$(ps -ww -o command= -p "$pid" 2>/dev/null)" in
+      *bash" "/*/tools/testhost" run"*) kill -TERM "$pid" 2>/dev/null || true ;;
+      *) kill -INT "$pid" 2>/dev/null || true ;;
+    esac
+    for _ in $(seq 1 75); do
+      if ! live_pid >/dev/null; then
+        rm -f "$pidfile"
+        exit 0
+      fi
+      sleep 0.2
+    done
+    echo "the test host did not stop within 15 s (pid $pid)" >&2
+    exit 1
+    ;;
+  log) tail -n "${2:-40}" "$log" ;;
+  *) usage ;;
+esac

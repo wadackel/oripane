@@ -1,0 +1,46 @@
+name: android
+
+# The push to main is here for the Gradle cache, not for another test run: a pull request can read
+# only caches written on its own ref or on main, so with no run on main every new pull request
+# built cold. Kept apart from test.yml so an Android change does not start the macOS job.
+on:
+  pull_request:
+    paths:
+      - android/**
+      - spec/**
+      - LICENSE
+      - .github/workflows/android.yml
+  push:
+    branches: [main]
+    paths:
+      - android/**
+      - spec/**
+      - LICENSE
+      - .github/workflows/android.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    # The flake is darwin-only, so the JDK comes from setup-java and android/gw is out of reach.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: 17
+      # Off main it only reads the cache (the action's default), so pull requests stop saving
+      # a 700 MiB entry each that no other pull request can use.
+      - uses: gradle/actions/setup-gradle@v6.4.1
+      - name: Kotlin tests and debug APK
+        working-directory: android
+        # Screenshot tests run here without comparing: the baselines are recorded on the owner's
+        # Mac and compared only by a local tools/test.
+        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:assembleDebug

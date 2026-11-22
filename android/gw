@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Runs the Gradle wrapper inside the repository's nix devShell (JDK 17 + Android SDK env).
+set -euo pipefail
+cd "$(dirname "$0")"
+exec nix develop ..# --command ./gradlew "$@"

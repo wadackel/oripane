@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The mark as one sheet with a step fold. Paint order is the paper's: the fold face lies under the upper plane. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="63dp"
+    android:height="63dp"
+    android:viewportWidth="63"
+    android:viewportHeight="63">
+    <group
+        android:rotation="-45"
+        android:scaleX="0.93"
+        android:scaleY="0.93"
+        android:translateX="27.56"
+        android:translateY="35.44">
+        <path
+            android:fillColor="#18E2B0"
+            android:pathData="M20,2.25 L20,18.05 Q20,21.8 16.25,21.8 L-16.25,21.8 Q-20,21.8 -20,18.05 L-20,2.25 Z" />
+        <path
+            android:fillColor="#0D7E62"
+            android:pathData="M-8,-2.25 L32,-2.25 L20,2.25 L-20,2.25 Z" />
+        <path
+            android:fillColor="#A0EEDA"
+            android:pathData="M-8,-2.25 L-8,-18.05 Q-8,-21.8 -4.25,-21.8 L28.25,-21.8 Q32,-21.8 32,-18.05 L32,-2.25 Z" />
+    </group>
+</vector>

@@ -1,0 +1,580 @@
+#!/usr/bin/env bun
+// The release build on the owner's phone and Mac: whether they match HEAD, and installing HEAD.
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const usage = `usage: tools/phone status [--dumpsys <file>]
+       tools/phone install [--dry-run] [--allow-diverged]
+
+Says whether the release build on the owner's phone and the Oripane.app on this Mac
+match HEAD, and installs HEAD's release build on the phone (and Oripane.app on the
+Mac when host/ or tools/app changed since its build).
+
+  status    prints head:, mac: and phone: lines and exits 0, also when the phone is
+            out of reach. A side is current when its build has the same host/ and
+            tools/app (Mac) or android/ (phone) as HEAD, stale when HEAD is newer or
+            the build had uncommitted changes,
+            diverged when its commit is not an ancestor of HEAD or not in this clone.
+            --dumpsys <file> reads <file> as the phone's dumpsys package output
+            instead of asking adb.
+  install   refuses a tree with changes under android/, host/ or tools/app, prints
+            the status lines and the plan: lines, then builds and installs what is
+            stale. --dry-run stops after the plan. A diverged side is replaced only
+            with --allow-diverged.
+  -h, --help  print this help
+
+Every adb call names the phone with -s; nothing here reaches the emulator (use tools/eadb for that).
+The phone is the owner's daily phone: show the owner the --dry-run plan and wait for their yes before every install. --dry-run and status only connect adb and read; they change nothing on the phone or the Mac.
+A reinstall of Oripane.app quits it, which cuts the phone off, and with the self-signed certificate macOS can drop its Local Network permission (docs/usage.md "On the Mac").
+
+adb needs a server with mDNS off, which this command never starts: run
+ADB_MDNS=0 adb nodaemon server in the background first. Without ORIPANE_PHONE, the
+phone is the one device that advertises wireless debugging over Bonjour.
+
+Environment:
+  ORIPANE_PHONE  <IPv4>:<port> of the phone's adb, e.g. its tailnet address and 5555
+  ORIPANE_APP    the Oripane.app to read and reinstall (~/Applications/Oripane.app)
+`;
+
+const commandName = "tools/phone";
+const appPackage = "dev.wadackel.oripane";
+const phonePaths = ["android"];
+const macPaths = ["host", "tools/app"];
+const certName = "Oripane Signing";
+const releaseDir = "android/app/build/outputs/apk/release";
+
+// ---------------------------------------------------------------- pure parts
+
+export type Args =
+  | { command: "status"; dumpsys?: string }
+  | { command: "install"; dryRun?: true; allowDiverged?: true };
+
+export function parseArgs(args: string[]): Args | "help" | { error: string } {
+  if (args.includes("-h") || args.includes("--help")) return "help";
+  const [command, ...rest] = args;
+  if (command === undefined) return { error: "name a command" };
+  if (command === "status") {
+    const parsed: Args = { command };
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] !== "--dumpsys") return { error: `unknown option ${rest[i]} for status` };
+      if (parsed.dumpsys !== undefined) return { error: "--dumpsys given twice" };
+      const file = rest[++i];
+      if (file === undefined || file === "" || file.startsWith("-")) return { error: "--dumpsys needs a file" };
+      parsed.dumpsys = file;
+    }
+    return parsed;
+  }
+  if (command === "install") {
+    const parsed: Args = { command };
+    for (const arg of rest) {
+      if (arg === "--dry-run") parsed.dryRun = true;
+      else if (arg === "--allow-diverged") parsed.allowDiverged = true;
+      else return { error: `unknown option ${arg} for install` };
+    }
+    return parsed;
+  }
+  return { error: `unknown command ${command}` };
+}
+
+/** The usage error in ORIPANE_PHONE or ORIPANE_APP, if any. */
+export function checkEnv(env: Record<string, string | undefined>): string | undefined {
+  const phone = env.ORIPANE_PHONE || undefined;
+  if (phone !== undefined) {
+    const m = phone.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/);
+    const valid = m !== null && m.slice(1, 5).every((o) => Number(o) <= 255) && Number(m[5]) >= 1 && Number(m[5]) <= 65535;
+    if (!valid) return `ORIPANE_PHONE must be <IPv4>:<port>: ${phone}`;
+    // The emulator answers on loopback (127.0.0.1:5555), and macOS routes 0.0.0.0 there too.
+    if (phone.startsWith("127.") || phone.startsWith("0.")) return `ORIPANE_PHONE must not be an address that reaches the emulator: ${phone}`;
+  }
+  const app = env.ORIPANE_APP || undefined;
+  if (app !== undefined && !app.endsWith(".app")) return `ORIPANE_APP must end in .app: ${app}`;
+  return undefined;
+}
+
+export type Dumpsys = { installed: false } | { installed: true; stamp?: string; updated?: string };
+
+export function parseDumpsys(text: string): Dumpsys {
+  const lines = text.split(/\r?\n/);
+  // Other packages' blocks carry versionName= too; only the lines after our own header count.
+  const header = `Package [${appPackage}] `;
+  const start = lines.findIndex((l) => l.trimStart().startsWith(header));
+  if (start < 0) return { installed: false };
+  const rest = lines.slice(start + 1).map((l) => l.trim());
+  const name = rest.find((l) => l.startsWith("versionName="))?.slice("versionName=".length).split(/\s/)[0];
+  const updated = rest.find((l) => l.startsWith("lastUpdateTime="))?.slice("lastUpdateTime=".length).trim();
+  const plus = name?.indexOf("+") ?? -1;
+  const stamp = name !== undefined && plus >= 0 && plus < name.length - 1 ? name.slice(plus + 1) : undefined;
+  return { installed: true, ...(stamp !== undefined && { stamp }), ...(updated !== undefined && { updated }) };
+}
+
+/** Instance names that `dns-sd -B` added and did not remove, each once. */
+export function parseBrowse(text: string): string[] {
+  const added: string[] = [];
+  const removed = new Set<string>();
+  for (const line of text.split("\n")) {
+    const f = line.trim().split(/\s+/);
+    if (f.length < 7 || (f[1] !== "Add" && f[1] !== "Rmv")) continue;
+    const name = f.slice(6).join(" ");
+    if (f[1] === "Rmv") removed.add(name);
+    else if (!added.includes(name)) added.push(name);
+  }
+  return added.filter((n) => !removed.has(n));
+}
+
+export function parseResolve(text: string): { host: string; port: number } | undefined {
+  const m = text.match(/ can be reached at (\S+):(\d+) /);
+  return m ? { host: m[1], port: Number(m[2]) } : undefined;
+}
+
+export function parseAddress(text: string): string | undefined {
+  for (const line of text.split("\n")) {
+    const f = line.trim().split(/\s+/);
+    if (f[1] === "Add" && /^\d+\.\d+\.\d+\.\d+$/.test(f[5] ?? "") && !/^(127|0)\./.test(f[5])) return f[5];
+  }
+  return undefined;
+}
+
+/**
+ * Only the one answer a server without mDNS gives counts. Anything else, including no answer,
+ * is taken as mDNS on: going ahead with such a server is what crashes adb on this Mac.
+ */
+export const mdnsDisabled = (text: string) => text.includes("mdns discovery disabled");
+
+export type Signer = { ok: true; sha1: string } | { ok: false; reason: string };
+
+export type SignerInput = {
+  identity: boolean;
+  keychain: string;
+  keychainExists: boolean;
+  password: string;
+  passwordExists: boolean;
+  /** `security find-certificate -Z`; undefined when it was not run. */
+  find?: { code: number; out: string };
+  /** The `designated =>` line of the installed app. */
+  designated: string;
+};
+
+export function signerVerdict(s: SignerInput): Signer {
+  if (s.identity) return { ok: false, reason: "ORIPANE_SIGN_IDENTITY is set; tools/phone reinstalls only with the self-signed certificate" };
+  if (!s.keychainExists) {
+    return { ok: false, reason: `no keychain at ${s.keychain}; tools/app install would make a new certificate and the app would lose every privacy grant` };
+  }
+  if (!s.passwordExists) return { ok: false, reason: `${s.password} is missing; tools/app install would stop` };
+  const sha1 = s.find?.code === 0 ? s.find.out.match(/^SHA-1 hash: ([0-9A-Fa-f]{40})\s*$/m)?.[1] : undefined;
+  if (sha1 === undefined) return { ok: false, reason: `no "${certName}" certificate in ${s.keychain}` };
+  const leaf = s.designated.match(/certificate leaf = H"([0-9A-Fa-f]{40})"/)?.[1];
+  if (leaf === undefined) return { ok: false, reason: "the installed app is not tied to a certificate leaf" };
+  if (leaf.toLowerCase() !== sha1.toLowerCase()) {
+    return { ok: false, reason: `the installed app is tied to ${leaf}, the certificate to ${sha1}` };
+  }
+  return { ok: true, sha1 };
+}
+
+export type State = "current" | "stale" | "diverged";
+
+export type PlanInput = {
+  head: string;
+  phone: { state: State | "not installed"; stamp?: string; model: string; address: string };
+  /** `signer` is read only for a Mac that gets reinstalled. */
+  mac: { state: State | "not installed"; stamp?: string; app: string; running: boolean; signer?: Signer };
+  allowDiverged: boolean;
+};
+
+export type Plan = { lines: string[]; refuse: boolean; reinstallPhone: boolean; reinstallMac: boolean };
+
+export function planLines(p: PlanInput): Plan {
+  const lines: string[] = [];
+  const diverged: string[] = [];
+  const refusals: string[] = [];
+  const reinstallPhone = p.phone.state !== "current";
+  const reinstallMac = p.mac.state === "stale" || p.mac.state === "diverged";
+  if (reinstallPhone) {
+    lines.push(`plan: build the release APK 0.1.0+${p.head}`);
+    lines.push(`plan: install it on ${p.phone.model} at ${p.phone.address} (Oripane on the phone stops)`);
+  }
+  if (reinstallMac) {
+    lines.push(
+      p.mac.running
+        ? `plan: reinstall ${p.mac.app} (it quits and opens again; the phone's session drops)`
+        : `plan: reinstall ${p.mac.app} (not running; it stays closed)`,
+    );
+    const signer = p.mac.signer ?? { ok: false, reason: "the signer was not read" };
+    if (signer.ok) lines.push(`plan: sign with "${certName}" (SHA-1 ${signer.sha1}), the certificate the installed app is tied to`);
+    else refusals.push(`plan: refuse: signer mismatch (${signer.reason})`);
+  } else if (p.mac.state === "not installed") {
+    lines.push(`plan: Oripane.app is not installed at ${p.mac.app}; leaving the Mac alone`);
+  }
+  for (const [side, s] of [["phone", p.phone], ["Mac", p.mac]] as const) {
+    if (s.state === "diverged") diverged.push(`plan: the ${side} holds ${s.stamp ?? "unstamped"}, which is not an ancestor of HEAD; installing replaces it`);
+  }
+  if (diverged.length > 0 && !p.allowDiverged) refusals.push("plan: refuse: pass --allow-diverged to replace it");
+  if (!reinstallPhone && !reinstallMac) lines.push("plan: nothing to install");
+  return { lines: [...lines, ...diverged, ...refusals], refuse: refusals.length > 0, reinstallPhone, reinstallMac };
+}
+
+// ---------------------------------------------------------------- processes
+
+const root = resolve(import.meta.dir, "..");
+const adb = join(process.env.ANDROID_HOME || join(process.env.HOME ?? "", "Library/Android/sdk"), "platform-tools/adb");
+// Should something restart the adb server, it comes back without mDNS.
+const adbEnv = { ...process.env, ADB_MDNS: "0" };
+
+type Ran = { code: number; out: string; err: string; timedOut: boolean };
+
+class Failure extends Error {}
+
+const say = (text: string) => process.stderr.write(`${text}\n`);
+
+/**
+ * Runs a command to its end, or kills it after `timeout` seconds. Only calls that leave this Mac
+ * get a timeout: an address that drops packets makes adb wait silently, and the timeout line is
+ * then the only one naming the address.
+ */
+async function run(cmd: string[], o: { timeout?: number; label?: string; env?: Record<string, string | undefined>; cwd?: string } = {}): Promise<Ran> {
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(cmd, { cwd: o.cwd ?? root, env: o.env ?? process.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  } catch (error) {
+    return { code: 127, out: "", err: `cannot run ${cmd[0]}: ${error instanceof Error ? error.message : error}`, timedOut: false };
+  }
+  let timedOut = false;
+  const timer = o.timeout === undefined ? undefined : setTimeout(() => ((timedOut = true), proc.kill()), o.timeout * 1000);
+  const [code, out, err] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout as ReadableStream).text(),
+    new Response(proc.stderr as ReadableStream).text(),
+  ]);
+  clearTimeout(timer);
+  if (timedOut) say(`${o.label ?? cmd.join(" ")} timed out after ${o.timeout} s`);
+  return { code: timedOut ? 124 : code, out, err, timedOut };
+}
+
+/** Runs a dns-sd query, which never ends by itself, until `done` holds for its output or `seconds` pass. */
+async function watch(args: string[], seconds: number, done: (text: string) => boolean = () => false): Promise<string> {
+  const proc = Bun.spawn(["dns-sd", ...args], { env: process.env, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const timer = setTimeout(() => proc.kill(), seconds * 1000);
+  const decoder = new TextDecoder();
+  let text = "";
+  for await (const chunk of proc.stdout as ReadableStream<Uint8Array>) {
+    text += decoder.decode(chunk, { stream: true });
+    if (done(text)) {
+      proc.kill();
+      break;
+    }
+  }
+  clearTimeout(timer);
+  await proc.exited;
+  return text;
+}
+
+function git(...args: string[]): { code: number; out: string } {
+  const r = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: process.env });
+  return { code: r.exitCode, out: r.stdout.toString().trimEnd() };
+}
+
+function head(): string {
+  const r = git("rev-parse", "--short=12", "HEAD");
+  if (r.code !== 0) throw new Failure("git rev-parse HEAD failed");
+  return r.out;
+}
+
+/** The installed stamp against HEAD, in the order the checks must run. */
+function judge(stamp: string | undefined, paths: string[]): State {
+  if (stamp === undefined) return "stale";
+  const base = stamp.replace(/-dirty$/, "");
+  // A stamp comes from the device; one that is not a hex name must not reach git as an option.
+  if (!/^[0-9a-f]{4,40}$/.test(base) || git("cat-file", "-e", `${base}^{commit}`).code !== 0) return "diverged";
+  if (!stamp.endsWith("-dirty") && git("diff", "--quiet", base, "HEAD", "--", ...paths).code === 0) return "current";
+  if (git("merge-base", "--is-ancestor", base, "HEAD").code !== 0) return "diverged";
+  return "stale";
+}
+
+// ---------------------------------------------------------------- the Mac
+
+// Absolute, because tools/app runs from the repository root and would resolve a relative one there.
+const appPath = () => resolve(process.env.ORIPANE_APP || join(process.env.HOME ?? "", "Applications/Oripane.app"));
+
+type MacSide = { installed: false } | { installed: true; stamp?: string; state: State };
+
+function readMac(app: string): MacSide {
+  // PlistBuddy answers a missing file and a missing key both with exit 1.
+  if (!existsSync(app) || !statSync(app).isDirectory()) return { installed: false };
+  const r = Bun.spawnSync(["/usr/libexec/PlistBuddy", "-c", "Print :OripaneCommit", join(app, "Contents/Info.plist")], { stdout: "pipe", stderr: "pipe", env: process.env });
+  const stamp = r.exitCode === 0 ? r.stdout.toString().trim() || undefined : undefined;
+  return { installed: true, stamp, state: judge(stamp, macPaths) };
+}
+
+function macRunning(app: string): boolean {
+  const exe = join(app, "Contents/MacOS/oripane-host");
+  // Anchored as in tools/app: unanchored, it also matches any shell whose command line names the path.
+  const pattern = `^${exe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`;
+  return Bun.spawnSync(["pgrep", "-f", pattern], { stdout: "pipe", stderr: "pipe", env: process.env }).exitCode === 0;
+}
+
+function readSigner(app: string): Signer {
+  const home = process.env.HOME ?? "";
+  const keychain = join(home, "Library/Keychains/oripane-signing.keychain-db");
+  const password = join(home, "Library/Application Support/oripane-signing/password");
+  const identity = (process.env.ORIPANE_SIGN_IDENTITY ?? "") !== "";
+  const input: SignerInput = {
+    identity,
+    keychain,
+    keychainExists: existsSync(keychain),
+    password,
+    passwordExists: existsSync(password),
+    designated: "",
+  };
+  if (!identity && input.keychainExists && input.passwordExists) {
+    const f = Bun.spawnSync(["security", "find-certificate", "-c", certName, "-Z", keychain], { stdout: "pipe", stderr: "pipe", env: process.env });
+    input.find = { code: f.exitCode, out: f.stdout.toString() };
+    const c = Bun.spawnSync(["codesign", "-dr", "-", app], { stdout: "pipe", stderr: "pipe", env: process.env });
+    input.designated = `${c.stdout}\n${c.stderr}`.split("\n").find((l) => l.startsWith("designated")) ?? "";
+  }
+  return signerVerdict(input);
+}
+
+const macLine = (m: MacSide) => (m.installed ? `mac: ${m.stamp ?? "unstamped"} ${m.state}` : "mac: not installed");
+
+// ---------------------------------------------------------------- the phone
+
+type Phone = { address: string; model: string };
+type PhoneSide = { installed: false } | { installed: true; stamp?: string; updated?: string; state: State };
+
+class Unreachable extends Error {}
+
+async function adbServer(): Promise<void> {
+  // Any adb command starts a server when none listens, with mDNS on; so look before calling adb.
+  const lsof = Bun.spawnSync(["lsof", "-nP", "-iTCP:5037", "-sTCP:LISTEN"], { stdout: "pipe", stderr: "pipe", env: process.env });
+  if (lsof.stdout.toString().trim() === "") {
+    throw new Unreachable("no adb server: start one in the background with ADB_MDNS=0 adb nodaemon server");
+  }
+  const check = await run([adb, "mdns", "check"], { timeout: 5, env: adbEnv, label: "adb mdns check" });
+  if (check.code === 127) throw new Unreachable(check.err);
+  if (!mdnsDisabled(`${check.out}\n${check.err}`)) {
+    throw new Unreachable(
+      "the adb server runs with mDNS, which crashes it on this Mac: adb kill-server, then ADB_MDNS=0 adb nodaemon server in the background",
+    );
+  }
+}
+
+async function discover(): Promise<string> {
+  const service = "_adb-tls-connect._tcp";
+  const instances = parseBrowse(await watch(["-B", service, "local."], 3));
+  if (instances.length === 0) throw new Unreachable("no phone advertises wireless debugging");
+  if (instances.length > 1) {
+    throw new Unreachable(`${instances.length} phones advertise wireless debugging (${instances.join(", ")}): set ORIPANE_PHONE=<ip>:<port>`);
+  }
+  // The TXT record that follows carries the owner's name (given_name=): never print this output.
+  const target = parseResolve(await watch(["-L", instances[0], service, "local."], 5, (t) => parseResolve(t) !== undefined));
+  if (target === undefined) throw new Unreachable(`dns-sd could not resolve ${instances[0]}`);
+  const ip = parseAddress(await watch(["-G", "v4", target.host], 5, (t) => parseAddress(t) !== undefined));
+  if (ip === undefined) throw new Unreachable(`dns-sd found no IPv4 address for ${target.host}`);
+  return `${ip}:${target.port}`;
+}
+
+async function connect(): Promise<Phone> {
+  await adbServer();
+  const address = process.env.ORIPANE_PHONE || (await discover());
+  const c = await run([adb, "connect", address], { timeout: 20, env: adbEnv, label: `adb connect ${address}` });
+  if (c.timedOut) throw new Unreachable(`adb connect ${address} timed out after 20 s`);
+  // adb connect can exit 0 on a failure, and a fresh wireless link reports offline for a moment.
+  const deadline = Date.now() + 5000;
+  let state = "";
+  while (true) {
+    const s = await run([adb, "-s", address, "get-state"], { timeout: 5, env: adbEnv, label: `adb get-state ${address}` });
+    state = (s.out.trim() || s.err.trim()).split("\n")[0] ?? "";
+    if (s.code === 0 && s.out.trim() === "device") break;
+    if (Date.now() + 500 >= deadline) {
+      const said = `${c.out}${c.err}`.trim();
+      throw new Unreachable(`${address} is not a device (${state || "no state"})${said ? `; adb connect said: ${said}` : ""}`);
+    }
+    await Bun.sleep(500);
+  }
+  const m = await run([adb, "-s", address, "shell", "getprop", "ro.product.model"], { timeout: 5, env: adbEnv, label: `adb getprop ${address}` });
+  return { address, model: m.code === 0 ? m.out.trim() || "unknown model" : "unknown model" };
+}
+
+async function dumpsys(phone: Phone): Promise<string> {
+  const r = await run([adb, "-s", phone.address, "shell", "dumpsys", "package", appPackage], {
+    timeout: 15,
+    env: adbEnv,
+    label: `adb dumpsys ${phone.address}`,
+  });
+  if (r.code !== 0) throw new Unreachable(`dumpsys package ${appPackage} on ${phone.address} failed${r.err.trim() ? `: ${r.err.trim()}` : ""}`);
+  return r.out;
+}
+
+function judgePhone(text: string): PhoneSide {
+  const d = parseDumpsys(text);
+  return d.installed ? { ...d, state: judge(d.stamp, phonePaths) } : d;
+}
+
+function phoneLine(p: PhoneSide, where: string): string {
+  if (!p.installed) return `phone: not installed (${where})`;
+  return `phone: ${p.stamp ?? "unstamped"} ${p.state} (updated ${p.updated ?? "-"}, ${where})`;
+}
+
+const at = (phone: Phone) => `${phone.model}, ${phone.address}`;
+
+// ---------------------------------------------------------------- commands
+
+async function status(dumpsysFile: string | undefined): Promise<number> {
+  const lines = [`head: ${head()}`, macLine(readMac(appPath()))];
+  if (dumpsysFile !== undefined) {
+    let text: string;
+    try {
+      text = readFileSync(dumpsysFile, "utf8");
+    } catch {
+      say(`${commandName}: cannot read ${dumpsysFile}`);
+      return 1;
+    }
+    lines.push(phoneLine(judgePhone(text), `from ${dumpsysFile}`));
+  } else {
+    try {
+      const phone = await connect();
+      lines.push(phoneLine(judgePhone(await dumpsys(phone)), at(phone)));
+    } catch (error) {
+      if (!(error instanceof Unreachable)) throw error;
+      lines.push(`phone: unreachable: ${error.message}`);
+    }
+  }
+  console.log(lines.join("\n"));
+  return 0;
+}
+
+/** Runs a long step to its end, never killed, and shows its output only when it fails. */
+async function step(cmd: string[], env: Record<string, string | undefined>): Promise<Ran> {
+  const r = await run(cmd, { env });
+  if (r.code !== 0) {
+    say(`${cmd.join(" ")} failed (exit ${r.code}):`);
+    say(`${r.out}${r.err}`.trimEnd().split("\n").slice(-60).join("\n"));
+  }
+  return r;
+}
+
+async function install(dryRun: boolean, allowDiverged: boolean): Promise<number> {
+  // A build from a dirty tree would carry a stamp that names no commit.
+  const dirty = git("status", "--porcelain", "--", ...phonePaths, ...macPaths);
+  if (dirty.code !== 0) throw new Failure("git status failed");
+  if (dirty.out !== "") {
+    say(`${commandName}: commit or stash the changes under android/, host/ and tools/app first:\n${dirty.out}`);
+    return 1;
+  }
+  const h = head();
+  const app = appPath();
+  let phone: Phone;
+  let text: string;
+  try {
+    phone = await connect();
+    text = await dumpsys(phone);
+  } catch (error) {
+    if (!(error instanceof Unreachable)) throw error;
+    // A timeout already printed its own line.
+    if (!error.message.includes(" timed out after ")) say(`${commandName}: ${error.message}`);
+    return 1;
+  }
+  const phoneSide = judgePhone(text);
+  const macSide = readMac(app);
+  const running = macRunning(app);
+  const reinstallMac = macSide.installed && macSide.state !== "current";
+  const plan = planLines({
+    head: h,
+    phone: { state: phoneSide.installed ? phoneSide.state : "not installed", stamp: phoneSide.installed ? phoneSide.stamp : undefined, ...phone },
+    mac: {
+      state: macSide.installed ? macSide.state : "not installed",
+      stamp: macSide.installed ? macSide.stamp : undefined,
+      app,
+      running,
+      signer: reinstallMac ? readSigner(app) : undefined,
+    },
+    allowDiverged,
+  });
+  console.log([`head: ${h}`, macLine(macSide), phoneLine(phoneSide, at(phone)), ...plan.lines].join("\n"));
+  if (plan.refuse) return 1;
+  if (dryRun || (!plan.reinstallPhone && !plan.reinstallMac)) return 0;
+
+  const apk = join(root, releaseDir, "app-release.apk");
+  if (plan.reinstallPhone) {
+    const b = await step([join(root, "android/gw"), ":app:assembleRelease", `-Poripane.commit=${h}`], process.env);
+    if (b.code !== 0) return 1;
+    const metadata = join(root, releaseDir, "output-metadata.json");
+    let name: unknown;
+    try {
+      name = (JSON.parse(readFileSync(metadata, "utf8")) as { elements?: { versionName?: unknown }[] }).elements?.[0]?.versionName;
+    } catch {
+      name = undefined;
+    }
+    if (name !== `0.1.0+${h}`) {
+      say(`${commandName}: ${metadata} names version ${String(name)}, not 0.1.0+${h}: the oripane.commit property did not reach the build`);
+      return 1;
+    }
+    console.log(`built ${apk} (0.1.0+${h})`);
+  }
+  if (plan.reinstallMac) {
+    // The devShell's Apple SDK hides /usr/bin/swift (AGENTS.md, "Verifying a change").
+    const env = { ...process.env, ORIPANE_APP: app };
+    delete env.DEVELOPER_DIR;
+    delete env.SDKROOT;
+    const r = await step([join(root, "tools/app"), "install", ...(running ? [] : ["--no-open"])], env);
+    if (r.code !== 0) {
+      say("check Oripane.app with tools/app status");
+      return 1;
+    }
+    const installed = r.out.split("\n").filter((l) => l.startsWith("installed ")).at(-1);
+    if (installed) console.log(installed);
+  }
+  if (plan.reinstallPhone) {
+    const r = await run([adb, "-s", phone.address, "install", "-r", apk], { timeout: 180, env: adbEnv, label: `adb install ${phone.address}` });
+    // No uninstall on failure: it would delete the phone's settings and pairings.
+    if (r.code !== 0) {
+      if (!r.timedOut) say(`adb -s ${phone.address} install -r failed (exit ${r.code}):\n${`${r.out}${r.err}`.trimEnd()}`);
+      if (plan.reinstallMac) say(`the Mac is already at ${h}; the phone is not`);
+      return 1;
+    }
+  }
+
+  const macAfter = readMac(app);
+  let phoneAfter: PhoneSide;
+  let phoneAfterLine: string;
+  try {
+    phoneAfter = judgePhone(await dumpsys(phone));
+    phoneAfterLine = phoneLine(phoneAfter, at(phone));
+  } catch (error) {
+    if (!(error instanceof Unreachable)) throw error;
+    phoneAfter = { installed: false };
+    phoneAfterLine = `phone: unreachable: ${error.message}`;
+  }
+  console.log([`head: ${h}`, macLine(macAfter), phoneAfterLine].join("\n"));
+  const current = (s: MacSide | PhoneSide) => s.installed && s.state === "current";
+  return (!plan.reinstallPhone || current(phoneAfter)) && (!plan.reinstallMac || current(macAfter)) ? 0 : 1;
+}
+
+async function main(): Promise<number> {
+  // lsof lives in /usr/sbin, which cron's and launchd's PATH leave out. Appended, not prepended,
+  // so a tool earlier on PATH still wins.
+  process.env.PATH = [process.env.PATH, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].filter(Boolean).join(":");
+  const parsed = parseArgs(process.argv.slice(2));
+  if (parsed === "help") {
+    process.stdout.write(usage);
+    return 0;
+  }
+  if ("error" in parsed) {
+    say(`${commandName}: ${parsed.error}\n${usage}`);
+    return 2;
+  }
+  // Before git, lsof or adb, so the adb server's state cannot turn a usage error into 0 or 1.
+  const envError = checkEnv(process.env);
+  if (envError !== undefined) {
+    say(`${commandName}: ${envError}`);
+    return 2;
+  }
+  try {
+    return parsed.command === "status" ? await status(parsed.dumpsys) : await install(parsed.dryRun === true, parsed.allowDiverged === true);
+  } catch (error) {
+    if (!(error instanceof Failure)) throw error;
+    say(`${commandName}: ${error.message}`);
+    return 1;
+  }
+}
+
+if (import.meta.main) process.exitCode = await main();

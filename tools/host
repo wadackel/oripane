@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Builds the Mac host (release) and runs it. Arguments go to `oripane-host`, e.g.
+#   tools/host run
+#   tools/host run --mode mirror
+#   tools/host run --mode match
+#   tools/host pairings
+#   tools/host --help
+set -euo pipefail
+cd "$(dirname "$0")/../host"
+env -u DEVELOPER_DIR -u SDKROOT swift build -c release >&2
+exec .build/release/oripane-host "$@"

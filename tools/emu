@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Emulator helpers. Every adb call is pinned to the emulator (tools/eadb), never the phone.
+#   tools/emu start                 boot the foldable AVD headless
+#   tools/emu install               install the debug APK
+#   tools/emu connect [mode] [port] launch the app connected to the Mac (10.0.2.2 from the
+#                                   emulator); pairs the first time, then reuses the saved Mac's
+#                                   pairing. A port (`--ei port`) reaches a test host such as
+#                                   tools/testhost on 47940. Without a port, connect reaches the
+#                                   owner's Oripane.app on 47800. The emulator holds no pairing for
+#                                   it after `pm clear`, so it pairs, and the owner's Mac shows a
+#                                   pairing dialog.
+#   tools/emu shot <file>           screenshot
+#   tools/emu log                   follow the app's structured log
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+AVD="${ORIPANE_AVD:-oripane_fold}"
+SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+case "${1:-}" in
+  start)
+    "$SDK/emulator/emulator" -avd "$AVD" -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save >/dev/null 2>&1 &
+    until [ "$("$here/eadb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do sleep 3; done
+    echo booted ;;
+  install) "$here/eadb" install -r "$here/../android/app/build/outputs/apk/debug/app-debug.apk" ;;
+  connect)
+    # Unquoted so that --ei and port split into words; an empty array would trip set -u on bash 3.2.
+    "$here/eadb" shell am start -S -n dev.wadackel.oripane/.MainActivity --es host 10.0.2.2 --es mode "${2:-extend}" --ez connect true ${3:+--ei port "$3"} ;;
+  shot) "$here/eadb" exec-out screencap -p > "${2:?file}" ;;
+  log) "$here/eadb" logcat -s oripane:I AndroidRuntime:E ;;
+  *) sed -n '2,13p' "$0"; exit 2 ;;
+esac

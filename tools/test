@@ -1,0 +1,299 @@
+#!/usr/bin/env bun
+// Every automated check, or one step of it, with the failures and one summary line as output.
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const usage = `usage: tools/test [host|vectors|android] [--filter <pattern>] [--verbose]
+
+Runs the repository's automated checks and prints one summary line. Exits 0 when every
+check passed, 1 when one failed, 2 on a usage error.
+
+Steps (all three, in this order, when none is named):
+  host      Swift core tests (swift test in host/)
+  vectors   rebuilds spec/vectors.json with the release host and fails when it differs
+            from the committed file; named on its own, it also runs the Kotlin
+            VectorsTest against it
+  android   Kotlin protocol and app unit tests and the debug APK (android/gw); unless
+            CI is set, the screenshot tests also compare every shot with its baseline
+            in android/app/src/test/screenshots
+
+Options:
+  --filter <pattern>  with host or android only, passed as is: to swift test --filter
+                      (a regular expression) or to Gradle --tests (a test pattern).
+                      The android step then skips the APK.
+  --verbose           also stream every command's output, for CI
+  -h, --help          print this help
+
+Each step's full output goes to $TMPDIR/oripane-test/<step>.log (/tmp when TMPDIR is
+unset), and the summary line ends with that directory. Inside nix develop -c, TMPDIR is
+a fresh /tmp/nix-shell.XXXXXX on every call. Two runs at once share the same logs.
+
+DEVELOPER_DIR and SDKROOT are removed for every command, so the devShell's Apple SDK
+does not hide /usr/bin/swift. Without bun on PATH, run nix develop -c tools/test.
+`;
+
+const steps = ["host", "vectors", "android"] as const;
+type Step = (typeof steps)[number];
+type Options = { step?: Step; filter?: string; verbose: boolean };
+
+function parseArgs(args: string[]): Options | string {
+  const options: Options = { verbose: false };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--verbose") {
+      options.verbose = true;
+    } else if (arg === "--filter") {
+      if (options.filter !== undefined) return "--filter given twice";
+      const pattern = args[i + 1];
+      if (pattern === undefined || pattern === "" || pattern.startsWith("-")) return "--filter needs a pattern";
+      options.filter = pattern;
+      i++;
+    } else if (arg.startsWith("-")) {
+      return `unknown option ${arg}`;
+    } else if (!(steps as readonly string[]).includes(arg)) {
+      return `unknown step ${arg}`;
+    } else if (options.step !== undefined) {
+      return "name at most one step";
+    } else {
+      options.step = arg as Step;
+    }
+  }
+  if (options.filter !== undefined && options.step !== "host" && options.step !== "android") {
+    return "--filter needs the host or android step";
+  }
+  return options;
+}
+
+const args = process.argv.slice(2);
+if (args.includes("-h") || args.includes("--help")) {
+  await Bun.write(Bun.stdout, usage);
+  process.exit(0);
+}
+const parsed = parseArgs(args);
+if (typeof parsed === "string") {
+  await Bun.write(Bun.stderr, `tools/test: ${parsed}\n${usage}`);
+  process.exit(2);
+}
+const options = parsed;
+
+const root = resolve(import.meta.dir, "..");
+const hostDir = join(root, "host");
+const androidDir = join(root, "android");
+const gw = join(androidDir, "gw");
+const protocolResults = join(androidDir, "protocol/build/test-results/test");
+const appResults = join(androidDir, "app/build/test-results/testDebugUnitTest");
+const logDir = join(process.env.TMPDIR || "/tmp", "oripane-test");
+
+// The devShell points both at nixpkgs' Apple SDK, which breaks /usr/bin/swift and the xcrun shim
+// behind /usr/bin/git alike. android/gw enters the devShell again and sets its own.
+const env = { ...process.env };
+delete env.DEVELOPER_DIR;
+delete env.SDKROOT;
+
+type Run = { code: number; text: string };
+
+// One chain for every streamed write, so the two pumps never interleave partial writes.
+let streamed: Promise<unknown> = Promise.resolve();
+
+async function run(cmd: string[], cwd: string, log: string): Promise<Run> {
+  const lines: string[] = [];
+  const emit = async (text: string) => {
+    lines.push(text);
+    appendFileSync(log, text);
+    if (options.verbose) await (streamed = streamed.then(() => Bun.write(Bun.stdout, text)));
+  };
+  await emit(`$ ${cmd.join(" ")}\n`);
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(cmd, { cwd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  } catch (error) {
+    await emit(`tools/test: cannot run ${cmd[0]}: ${error instanceof Error ? error.message : error}\n`);
+    return { code: 127, text: lines.join("") };
+  }
+  // Whole lines only, so stdout and stderr never splice into one line of the log.
+  const pump = async (stream: ReadableStream<Uint8Array>) => {
+    const decoder = new TextDecoder();
+    let pending = "";
+    for await (const chunk of stream) {
+      pending += decoder.decode(chunk, { stream: true });
+      const end = pending.lastIndexOf("\n") + 1;
+      if (end > 0) {
+        await emit(pending.slice(0, end));
+        pending = pending.slice(end);
+      }
+    }
+    pending += decoder.decode();
+    if (pending) await emit(`${pending}\n`);
+  };
+  const [code] = await Promise.all([
+    proc.exited,
+    pump(proc.stdout as ReadableStream<Uint8Array>),
+    pump(proc.stderr as ReadableStream<Uint8Array>),
+  ]);
+  return { code, text: lines.join("") };
+}
+
+type Tally = { total: number; failed: number; excerpt: string[] };
+
+function swiftTally(text: string): Tally {
+  const lines = text.split("\n");
+  const total = Number(text.match(/Test run with (\d+) test/)?.[1] ?? 0);
+  let failed = 0;
+  const excerpt: string[] = [];
+  const errors = new Set<string>();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trimStart().startsWith("✘")) {
+      if (/^✘ Test (?!run with ).* failed after/.test(line.trimStart())) failed++;
+      excerpt.push(line);
+      while (lines[i + 1]?.trimStart().startsWith("↳")) excerpt.push(lines[++i]);
+    } else if (line.includes(": error: ")) {
+      if (!errors.has(line)) excerpt.push(line);
+      errors.add(line);
+    }
+  }
+  return { total, failed, excerpt };
+}
+
+const asList = (value: unknown): unknown[] => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
+const record = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+
+// yq-go parses the XML (entities included) into JSON: attributes as "+@name", text as "+content".
+async function junitTally(dirs: string[]): Promise<Tally> {
+  const tally: Tally = { total: 0, failed: 0, excerpt: [] };
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir).filter((n) => n.endsWith(".xml")).sort()) {
+      const file = join(dir, name);
+      const proc = Bun.spawn(["yq", "-p", "xml", "-o", "json", file], { env, stdout: "pipe", stderr: "pipe" });
+      const [code, out, err] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      if (code !== 0) throw new Error(`yq cannot read ${file}: ${err.trim()}`);
+      const suite = record(record(JSON.parse(out)).testsuite);
+      tally.total += Number(suite["+@tests"] ?? 0);
+      for (const testcase of asList(suite.testcase).map(record)) {
+        const problem = [...asList(testcase.failure), ...asList(testcase.error)][0];
+        if (problem === undefined) continue;
+        tally.failed++;
+        tally.excerpt.push(`${testcase["+@classname"]} > ${testcase["+@name"]}`);
+        const message = typeof problem === "string" ? "" : String(record(problem)["+@message"] ?? "");
+        const trace = typeof problem === "string" ? problem : String(record(problem)["+content"] ?? "");
+        if (message) for (const line of message.split("\n").slice(0, 10)) tally.excerpt.push(`  ${line}`);
+        // The JVM prefixes a frame with its class loader ("at app//dev.wadackel.oripane.…"); drop it.
+        const frame = trace
+          .split("\n")
+          .map((l) => l.trim().replace(/^at [\w.$-]+\/\//, "at "))
+          .find((l) => l.startsWith("at dev.wadackel.oripane."));
+        if (frame) tally.excerpt.push(`  ${frame}`);
+      }
+    }
+  }
+  return tally;
+}
+
+async function gradle(tasks: string[], log: string, results: string[]): Promise<Run & Tally> {
+  for (const dir of results) rmSync(dir, { recursive: true, force: true });
+  // Without --continue, Gradle starts no new task after a failure, so the app tests would go unseen.
+  const r = await run([gw, "--continue", ...tasks], androidDir, log);
+  let tally: Tally;
+  try {
+    tally = await junitTally(results);
+  } catch (error) {
+    return { ...r, code: r.code || 1, total: 0, failed: 0, excerpt: [String(error instanceof Error ? error.message : error)] };
+  }
+  const lines = r.text.split("\n");
+  const excerpt = [...new Set(lines.filter((l) => l.startsWith("e: "))), ...tally.excerpt];
+  if (excerpt.length === 0 && r.code !== 0) {
+    let inside = false;
+    for (const line of lines) {
+      if (line.startsWith("* What went wrong:")) inside = true;
+      else if (line.startsWith("* Try:")) inside = false;
+      if (inside) excerpt.push(line);
+    }
+  }
+  return { ...r, ...tally, excerpt };
+}
+
+type Result = { step: Step; ok: boolean; summary: string; excerpt: string[]; log: string };
+
+const noTest = () => (options.filter !== undefined ? `no test matched --filter ${options.filter}` : "no test ran");
+const counted = (step: Step, t: Tally) => (t.failed > 0 ? `${step} (${t.failed} of ${t.total} tests failed)` : step);
+
+async function host(log: string): Promise<Result> {
+  // Command Line Tools ship the swift-testing macro plugin outside SwiftPM's default search path.
+  const cmd = ["swift", "test", "-Xswiftc", "-plugin-path", "-Xswiftc", "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing"];
+  if (options.filter !== undefined) cmd.push("--filter", options.filter);
+  const r = await run(cmd, hostDir, log);
+  const t = swiftTally(r.text);
+  if (r.code === 0 && t.total > 0) return { step: "host", ok: true, summary: `host ${t.total} tests`, excerpt: [], log };
+  // A compile error also counts zero tests; "no test matched" would point at the wrong cause.
+  const excerpt = r.code === 0 ? [...t.excerpt, noTest()] : t.excerpt;
+  return { step: "host", ok: false, summary: counted("host", t), excerpt, log };
+}
+
+async function vectors(log: string): Promise<Result> {
+  const failed = (excerpt: string[], summary = "vectors"): Result => ({ step: "vectors", ok: false, summary, excerpt, log });
+  const build = await run(["swift", "build", "-c", "release"], hostDir, log);
+  if (build.code !== 0) return failed(swiftTally(build.text).excerpt);
+  const spec = join(root, "spec/vectors.json");
+  const generate = await run([join(hostDir, ".build/release/oripane-host"), "vectors", spec], hostDir, log);
+  if (generate.code !== 0) return failed([]);
+  const diff = await run(["git", "-C", root, "diff", "--exit-code", "--", "spec/vectors.json"], root, log);
+  if (diff.code === 1) {
+    const stat = await run(["git", "-C", root, "diff", "--stat", "--", "spec/vectors.json"], root, log);
+    const lines = stat.text.split("\n").filter((l) => l !== "" && !l.startsWith("$ "));
+    return failed(["spec/vectors.json changed: commit the regenerated vectors", ...lines]);
+  }
+  if (diff.code !== 0) return failed([]);
+  // In a full run the android step's :protocol:test runs VectorsTest already.
+  if (options.step !== "vectors") return { step: "vectors", ok: true, summary: "vectors", excerpt: [], log };
+  const test = "dev.wadackel.oripane.protocol.VectorsTest";
+  const g = await gradle([":protocol:test", "--tests", test], log, [protocolResults]);
+  if (g.code === 0 && g.total > 0) return { step: "vectors", ok: true, summary: `vectors ${g.total} tests`, excerpt: [], log };
+  return failed(g.code === 0 ? [...g.excerpt, `no test matched ${test}`] : g.excerpt, counted("vectors", g));
+}
+
+async function android(log: string): Promise<Result> {
+  const f = options.filter;
+  // Gradle binds a command-line option to the task just before it, hence one --tests per task.
+  const tasks =
+    f === undefined
+      ? [":protocol:test", ":app:testDebugUnitTest", ":app:assembleDebug"]
+      : [":protocol:test", "--tests", f, ":app:testDebugUnitTest", "--tests", f];
+  // Screenshots are compared only on the owner's Mac, where the baselines are recorded and the
+  // gate runs this script; CI renders them on other machines.
+  if (!process.env.CI) tasks.push("-Proborazzi.test.verify=true");
+  const g = await gradle(tasks, log, [protocolResults, appResults]);
+  if (g.code === 0 && g.total > 0) return { step: "android", ok: true, summary: `android ${g.total} tests`, excerpt: [], log };
+  const excerpt = g.code === 0 ? [...g.excerpt, noTest()] : g.excerpt;
+  return { step: "android", ok: false, summary: counted("android", g), excerpt, log };
+}
+
+const runners: Record<Step, (log: string) => Promise<Result>> = { host, vectors, android };
+
+const started = performance.now();
+mkdirSync(logDir, { recursive: true });
+const results: Result[] = [];
+for (const step of options.step === undefined ? steps : [options.step]) {
+  const log = join(logDir, `${step}.log`);
+  writeFileSync(log, "");
+  const result = await runners[step](log);
+  results.push(result);
+  if (result.ok) continue;
+  const lines = result.excerpt.length > 0 ? result.excerpt : readFileSync(log, "utf8").trimEnd().split("\n").slice(-30);
+  await Bun.write(Bun.stderr, `--- ${step} failed (log: ${log})\n${lines.join("\n")}\n`);
+}
+
+const passed = results.filter((r) => r.ok).map((r) => r.summary);
+const failures = results.filter((r) => !r.ok).map((r) => r.summary);
+const tail = `(${Math.round((performance.now() - started) / 1000)} s, logs: ${logDir})`;
+const summary =
+  failures.length === 0
+    ? `ok: ${passed.join(", ")} ${tail}`
+    : `FAILED: ${failures.join(", ")}${passed.length > 0 ? `; ok: ${passed.join(", ")}` : ""} ${tail}`;
+await Bun.write(Bun.stdout, `${summary}\n`);
+process.exitCode = failures.length === 0 ? 0 : 1;

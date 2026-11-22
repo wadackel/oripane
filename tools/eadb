@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# adb pinned to the emulator, so nothing here can reach the physical phone by accident.
+# Waits for the device first: the adb server gets restarted from elsewhere now and then, and a
+# command sent in that window fails with "device offline".
+adb="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+dev="${ORIPANE_EMULATOR:-emulator-5554}"
+"$adb" -s "$dev" wait-for-device 2>/dev/null
+exec "$adb" -s "$dev" "$@"

@@ -1,0 +1,120 @@
+#!/usr/bin/env bun
+// The emulator's screen by its labels, through tools/eadb, so it never reaches the phone. Needs bun
+// and yq (yq-go) on PATH; the devShell has both.
+const usage = `tools/ui list                          every labelled node: <label>\\t<cx>,<cy>
+tools/ui tap <label> [--scroll]        tap the one node whose text or content-desc is <label>;
+                                       --scroll swipes up to 5 times to find it
+tools/ui swipe <x1> <y1> <x2> <y2> [ms] swipe (default 300 ms)
+tools/ui back                          the back key`;
+
+const eadb = `${import.meta.dir}/eadb`;
+const dumpPath = "/sdcard/window_dump.xml";
+
+type Node = { text: string; desc: string; label: string; cx: number; cy: number };
+
+function run(cmd: string[], stdin?: string): string {
+  const r = Bun.spawnSync(cmd, { stdin: stdin === undefined ? "ignore" : Buffer.from(stdin), stdout: "pipe", stderr: "pipe" });
+  if (r.exitCode !== 0) {
+    process.stderr.write(r.stderr);
+    throw new Error(`${cmd.join(" ")} exited with ${r.exitCode}`);
+  }
+  return r.stdout.toString();
+}
+
+const adb = (...args: string[]) => run([eadb, ...args]);
+
+// yq makes a single child an object and several an array.
+const many = (v: unknown): Record<string, unknown>[] =>
+  v === undefined || v === null ? [] : (Array.isArray(v) ? v : [v]) as Record<string, unknown>[];
+
+const attr = (n: Record<string, unknown>, name: string) => {
+  const v = n[`+@${name}`];
+  return typeof v === "string" ? v : "";
+};
+
+function collect(n: Record<string, unknown>, out: Node[]) {
+  const text = attr(n, "text");
+  const desc = attr(n, "content-desc");
+  const b = /^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/.exec(attr(n, "bounds"));
+  if ((text || desc) && b) {
+    const [x1, y1, x2, y2] = b.slice(1).map(Number);
+    out.push({ text, desc, label: text || desc, cx: Math.floor((x1 + x2) / 2), cy: Math.floor((y1 + y2) / 2) });
+  }
+  for (const c of many(n.node)) collect(c, out);
+}
+
+function screen(): Node[] {
+  // The old dump goes first: uiautomator can fail with exit 0 and leave it in place.
+  const dumped = adb("shell", `rm -f ${dumpPath}; uiautomator dump ${dumpPath}`);
+  const xml = adb("exec-out", "cat", dumpPath);
+  if (!xml.includes("<hierarchy")) throw new Error(`uiautomator dump failed: ${dumped.trim()}`);
+  const doc = JSON.parse(run(["yq", "-p", "xml", "-o", "json"], xml)) as { hierarchy?: Record<string, unknown> };
+  const out: Node[] = [];
+  for (const top of many(doc.hierarchy?.node)) collect(top, out);
+  return out;
+}
+
+const line = (n: Node) => `${n.label.replaceAll("\t", "\\t").replaceAll("\n", "\\n")}\t${n.cx},${n.cy}`;
+
+function screenSize(): { w: number; h: number } {
+  const out = adb("shell", "wm", "size");
+  const pick = /Override size: (\d+)x(\d+)/.exec(out) ?? /Physical size: (\d+)x(\d+)/.exec(out);
+  if (!pick) throw new Error(`wm size: ${out.trim()}`);
+  return { w: Number(pick[1]), h: Number(pick[2]) };
+}
+
+function tap(label: string, scroll: boolean): number {
+  let size: { w: number; h: number } | undefined;
+  for (let swipes = 0; ; swipes++) {
+    const hits = screen().filter((n) => n.text === label || n.desc === label);
+    if (hits.length === 1) {
+      adb("shell", "input", "tap", String(hits[0].cx), String(hits[0].cy));
+      return 0;
+    }
+    if (hits.length > 1) {
+      console.error(hits.map(line).join("\n"));
+      return 1;
+    }
+    if (!scroll || swipes === 5) {
+      console.error(`no node labelled ${label}`);
+      return 1;
+    }
+    const { w, h } = (size ??= screenSize());
+    const x = String(Math.floor(w / 2));
+    adb("shell", "input", "swipe", x, String(Math.floor(h * 0.7)), x, String(Math.floor(h * 0.3)), "300");
+  }
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  switch (cmd) {
+    case "list": {
+      const lines = screen().map(line);
+      if (lines.length) console.log(lines.join("\n"));
+      return 0;
+    }
+    case "tap": {
+      const scroll = rest.includes("--scroll");
+      const labels = rest.filter((a) => a !== "--scroll");
+      if (labels.length !== 1 || labels[0] === "") break;
+      return tap(labels[0], scroll);
+    }
+    case "swipe": {
+      if (rest.length < 4 || rest.length > 5 || !rest.every((a) => /^\d+$/.test(a))) break;
+      adb("shell", "input", "swipe", ...rest.slice(0, 4), rest[4] ?? "300");
+      return 0;
+    }
+    case "back":
+      adb("shell", "input", "keyevent", "BACK");
+      return 0;
+  }
+  console.log(usage);
+  return 2;
+}
+
+try {
+  process.exit(main(process.argv.slice(2)));
+} catch (e) {
+  console.error((e as Error).message);
+  process.exit(1);
+}

@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+.kotlin/
+*.h264
+host/probe-pairing.json

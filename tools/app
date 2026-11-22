@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# The Mac host as a menu bar app, ~/Applications/Oripane.app or ORIPANE_APP (docs/usage.md: "On the Mac").
+#   tools/app install [--no-open]  build, bundle and sign the app, replace the installed one, open it
+#   tools/app uninstall            quit it, remove it from the login items and delete it
+#                                  (the signing certificate and the pairings stay)
+#   tools/app open                 open the installed app
+#   tools/app quit                 quit every running copy and wait until they are gone
+#   tools/app status               whether it runs, its version and commit, what its signature is
+#                                  tied to, the login item
+# Signs with ORIPANE_SIGN_IDENTITY when set; otherwise with a self-signed certificate that the
+# first install creates in a keychain of its own.
+# ORIPANE_APP=<path>.app puts the app elsewhere, to check a build without replacing the owner's.
+# Delete such a copy with rm -rf, not tools/app uninstall: uninstall runs the copy's
+# login-item off, and the copy shares the installed app's bundle id.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+app="${ORIPANE_APP:-$HOME/Applications/Oripane.app}"
+# install and uninstall rm -rf "$app"; ORIPANE_APP=$HOME would take the home directory with it.
+case "$app" in *.app) ;; *) echo "ORIPANE_APP must end in .app: $app" >&2; exit 2 ;; esac
+exe="$app/Contents/MacOS/oripane-host"
+keychain="$HOME/Library/Keychains/oripane-signing.keychain-db"
+secrets="$HOME/Library/Application Support/oripane-signing"
+cert="Oripane Signing"
+
+# Anchored: unanchored, it also matches any shell whose command line mentions the path.
+# Every metacharacter escaped: ORIPANE_APP can hold | or ( and widen what quit kills.
+running() { pgrep -f "^$(printf '%s' "$exe" | sed 's/[][\.*^$+?(){}|]/\\&/g')( |\$)" || true; }
+
+quit() {
+  local pids
+  pids="$(running)"
+  [ -n "$pids" ] || return 0
+  # SIGTERM runs the host's shutdown, which releases the virtual display. An AppleScript quit
+  # would ask for Automation access for the terminal first.
+  kill -TERM $pids 2>/dev/null || true
+  for _ in $(seq 1 75); do [ -z "$(running)" ] && return 0; sleep 0.2; done
+  echo "Oripane did not quit within 15 s (pids: $(running | tr '\n' ' '))" >&2
+  exit 1
+}
+
+# Commands go to `security -i` on stdin, so the keychain password never shows in `ps`.
+keychain_do() { security -i >/dev/null; }
+
+# Sets `sign` to the codesign arguments that pick the certificate.
+signing_identity() {
+  if [ -n "${ORIPANE_SIGN_IDENTITY:-}" ]; then sign=(--sign "$ORIPANE_SIGN_IDENTITY"); return; fi
+  local pass="$secrets/password"
+  if [ ! -f "$keychain" ]; then
+    mkdir -p "$secrets" && chmod 700 "$secrets"
+    (umask 077 && /usr/bin/openssl rand -hex 32 >"$pass")
+    # No lock timeout and not on the search list: signing names this keychain itself.
+    printf 'create-keychain -p %s %s\nset-keychain-settings %s\n' "$(cat "$pass")" "$keychain" "$keychain" | keychain_do
+  fi
+  [ -f "$pass" ] || { echo "$pass is missing; delete $keychain to start over (TCC grants go with it)" >&2; exit 1; }
+  printf 'unlock-keychain -p %s %s\n' "$(cat "$pass")" "$keychain" | keychain_do
+  # Never replaced once made: privacy grants are tied to this certificate.
+  if ! security find-certificate -c "$cert" "$keychain" >/dev/null 2>&1; then
+    local tmp p12
+    tmp="$(mktemp -d)"
+    # The private key is written unencrypted; it must not outlive a failed step.
+    trap "rm -rf '$tmp'" EXIT
+    p12="$(/usr/bin/openssl rand -hex 16)"
+    /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 7300 -subj "/CN=$cert" \
+      -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" \
+      -addext "basicConstraints=critical,CA:false" -keyout "$tmp/key.pem" -out "$tmp/cert.pem" 2>/dev/null
+    P12PW="$p12" /usr/bin/openssl pkcs12 -export -inkey "$tmp/key.pem" -in "$tmp/cert.pem" -name "$cert" \
+      -out "$tmp/id.p12" -passout env:P12PW
+    printf 'import %s -k %s -f pkcs12 -P %s -T /usr/bin/codesign\nset-key-partition-list -S apple-tool:,apple:,codesign: -s -k %s %s\n' \
+      "$tmp/id.p12" "$keychain" "$p12" "$(cat "$pass")" "$keychain" | keychain_do
+    rm -rf "$tmp"
+    trap - EXIT
+    security find-certificate -c "$cert" "$keychain" >/dev/null || { echo "could not create the certificate" >&2; exit 1; }
+    echo "created the signing certificate \"$cert\" in $keychain" >&2
+  fi
+  sign=(--keychain "$keychain" --sign "$cert")
+}
+
+install() {
+  local open=1
+  [ "${1:-}" = "--no-open" ] && open=0
+  (cd "$root/host" && swift build -c release >&2)
+  local stage
+  stage="$(mktemp -d)"
+  local b="$stage/Oripane.app/Contents"
+  mkdir -p "$b/MacOS" "$b/Resources"
+  cp "$root/host/Bundle/Info.plist" "$b/Info.plist"
+  # major.minor from the template, the patch from the commit count.
+  local count base version
+  count="$(git -C "$root" rev-list --count HEAD)"
+  base="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$b/Info.plist")"
+  version="${base%.*}.$count"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" -c "Set :CFBundleVersion $count" "$b/Info.plist"
+  # The commit the bundle is built from; tools/phone compares it with HEAD. The count above can
+  # repeat across branches.
+  local stamp
+  stamp="$(git -C "$root" rev-parse --short=12 HEAD)"
+  if [ -n "$(git -C "$root" status --porcelain -- host tools/app)" ]; then stamp="$stamp-dirty"; fi
+  /usr/libexec/PlistBuddy -c "Add :OripaneCommit string $stamp" "$b/Info.plist"
+  cp "$root/host/.build/release/oripane-host" "$b/MacOS/oripane-host"
+  swift "$root/host/Bundle/make-icon.swift" "$stage/AppIcon.iconset"
+  iconutil -c icns -o "$b/Resources/AppIcon.icns" "$stage/AppIcon.iconset"
+  local -a sign
+  signing_identity
+  codesign --force "${sign[@]}" "$stage/Oripane.app"
+  codesign --verify --strict "$stage/Oripane.app"
+  # Not while the old copy is still releasing its virtual display.
+  quit
+  mkdir -p "$(dirname "$app")"
+  rm -rf "$app"
+  mv "$stage/Oripane.app" "$app"
+  rm -rf "$stage"
+  echo "installed $app ($version, $stamp)"
+  if [ "$open" = 1 ]; then open "$app"; fi
+}
+
+case "${1:-}" in
+  install) shift; install "$@" ;;
+  uninstall)
+    quit
+    if [ -x "$exe" ]; then "$exe" login-item off || true; fi
+    rm -rf "$app"
+    echo "removed $app" ;;
+  open) open "$app" ;;
+  quit) quit ;;
+  status)
+    pids="$(running)"
+    if [ -n "$pids" ]; then echo "running: pid $(echo $pids)"; else echo "not running"; fi
+    if [ -d "$app" ]; then
+      echo "version: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+      echo "commit: $(/usr/libexec/PlistBuddy -c 'Print :OripaneCommit' "$app/Contents/Info.plist" 2>/dev/null || echo -)"
+      codesign -dr - "$app" 2>&1 | grep '^designated' || true
+      "$exe" login-item status
+    else
+      echo "not installed"
+    fi ;;
+  *) sed -n '2,14p' "$0"; exit 2 ;;
+esac

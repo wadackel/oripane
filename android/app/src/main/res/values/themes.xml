@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The system splash screen (always shown from API 31) uses the launcher icon on this ground. -->
+    <style name="Theme.Oripane" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/oripane_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/oripane_bg</item>
+    </style>
+</resources>

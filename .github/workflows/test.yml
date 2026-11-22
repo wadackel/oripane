@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - host/**
+      - spec/**
+      - flake.nix
+      - flake.lock
+      - tools/test
+      - .github/workflows/test.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # A hosted macOS minute costs ten times a Linux one, so this runs after the merge, not per PR.
+    # The host links CryptoKit and the macOS media frameworks, and the flake is darwin-only. The
+    # image's Android SDK sits at the devShell's default ANDROID_HOME, so no SDK setup step.
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: cachix/install-nix-action@v31.11.3
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.m2/repository
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/**') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - name: tools/test
+        run: nix develop -c env -u DEVELOPER_DIR -u SDKROOT tools/test --verbose

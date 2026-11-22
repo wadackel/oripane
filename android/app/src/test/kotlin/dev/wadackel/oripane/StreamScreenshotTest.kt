@@ -1,0 +1,265 @@
+package dev.wadackel.oripane
+
+import android.content.Context
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ApplicationProvider
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.ParameterizedRobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/** The parts the streaming screen draws over the video, on both of the Fold's screens. */
+@RunWith(ParameterizedRobolectricTestRunner::class)
+@Config(sdk = [35])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class StreamScreenshotTest(private val size: FoldSize) {
+    @get:Rule(order = 0)
+    val screen = FoldScreenRule(size)
+
+    @get:Rule(order = 1)
+    val compose = createAndroidComposeRule<ComponentActivity>()
+
+    private fun shot(name: String) = compose.shot(name, size)
+
+    /** The screen in pixels and its density; read in a test, after the rule set the qualifiers. */
+    private class Metrics(val w: Float, val h: Float, val d: Float)
+
+    private fun metrics() = ApplicationProvider.getApplicationContext<Context>().resources.displayMetrics.let {
+        Metrics(it.widthPixels.toFloat(), it.heightPixels.toFloat(), it.density)
+    }
+
+    private fun corners(expanded: Boolean, awdlMark: Boolean, note: String? = null, waiting: Boolean = false) {
+        val m = metrics()
+        val corner = MenuCorner.BOTTOM_END
+        compose.setContent {
+            StreamFrame {
+                StatusCorner(
+                    showDot = true,
+                    color = if (note != null && !waiting) StatusColor.YELLOW else if (waiting) StatusColor.GREY else StatusColor.GREEN,
+                    note = note,
+                    waiting = waiting,
+                    expanded = expanded,
+                    details = if (expanded) ({ StatsOverlay(stats, streaming, dataSaver = false) }) else null,
+                    awdlMark = awdlMark,
+                    onToggle = {},
+                    onMark = {},
+                    modifier = Modifier.align(corner.opposite.alignment()),
+                )
+                MenuButton(corner, parentWidth = m.w, parentHeight = m.h, onTap = {}, onCorner = {}, modifier = Modifier.align(corner.alignment()))
+            }
+        }
+    }
+
+    @Test
+    fun statusDotAndMenuButtonInTheirCorners() {
+        corners(expanded = false, awdlMark = true)
+        shot("stream_corners")
+    }
+
+    @Test
+    fun statsOpenInTheStatusCorner() {
+        corners(expanded = true, awdlMark = false)
+        shot("stream_stats")
+    }
+
+    @Test
+    fun awdlBanner() {
+        compose.setContent {
+            StreamFrame {
+                val below = if (awdlBannerBelowCorners(maxWidth.value)) Modifier.padding(top = CORNER_DP.dp) else Modifier
+                AwdlBanner(onDismiss = {}, modifier = Modifier.align(Alignment.TopCenter).then(below))
+            }
+        }
+        shot("stream_awdl_banner")
+    }
+
+    @Test
+    fun statusDotOpenIntoANote() {
+        corners(expanded = false, awdlMark = false, note = slowText(stats.copy(totalMs = 120.0)))
+        shot("stream_status_note")
+    }
+
+    @Test
+    fun statusDotWhileReconnecting() {
+        corners(expanded = false, awdlMark = false, note = reconnectingText(null, 2, RouteKind.LAN.label), waiting = true)
+        shot("stream_reconnecting")
+    }
+
+    /** The bands as TouchInput places them on a screen with no gesture insets: the side one centred. */
+    private fun bands(m: Metrics): ScrollBands {
+        val lane = StripArea(m.w - TouchInput.STRIP_WIDTH_DP * m.d, 0f, m.w, m.h)
+        val half = VERTICAL_BAND_DP / 2 * m.d
+        val halfH = HORIZONTAL_BAND_DP / 2 * m.d
+        return ScrollBands(ScrollStrip.RIGHT, lane, lane.copy(top = m.h / 2 - half, bottom = m.h / 2 + half), StripArea(m.w / 2 - halfH, m.h - TouchInput.STRIP_WIDTH_DP * m.d, m.w / 2 + halfH, m.h))
+    }
+
+    @Test
+    fun scrollBands() {
+        val m = metrics()
+        compose.setContent {
+            StreamFrame { HalftoneBands(bands(m), BandSize.MEDIUM, touch = null, relocatingY = null, tint = BandTint.neutral, modifier = Modifier.fillMaxSize()) }
+        }
+        shot("stream_strip")
+    }
+
+    @Test
+    fun scrollBandHeldNearItsEnd() {
+        val m = metrics()
+        val b = bands(m)
+        // Near the band's lower end: the swell runs past it, which the dots beyond the end take.
+        val touch = BandTouch(horizontal = false, b.vertical.right - 10 * m.d, b.vertical.bottom - 20 * m.d)
+        compose.setContent {
+            StreamFrame { HalftoneBands(b, BandSize.MEDIUM, touch, relocatingY = null, tint = BandTint.neutral, modifier = Modifier.fillMaxSize()) }
+        }
+        shot("stream_strip_held")
+    }
+
+    private fun radial(selected: Int?, sticky: Boolean, entries: List<RadialEntry?> = RadialEntry.defaults) {
+        val m = metrics()
+        val x = m.w / 2
+        val y = m.h / 2
+        val state = RadialMenuState(
+            entries,
+            touchX = x, touchY = y, centerX = x, centerY = y,
+            fingerX = x, fingerY = y - 60 * m.d, videoX = x, videoY = y,
+            selected = selected, sticky = sticky,
+        )
+        compose.setContent { StreamFrame { RadialMenuOverlay(state, tint = videoTint, onPick = {}, onClose = {}) } }
+    }
+
+    @Test
+    fun radialMenuWithAnItemSelected() {
+        radial(selected = 0, sticky = false)
+        shot("radial_overlay_selected")
+    }
+
+    @Test
+    fun radialMenuLeftOpen() {
+        radial(selected = null, sticky = true)
+        shot("radial_overlay_sticky")
+    }
+
+    @Test
+    fun radialMenuOfFourWithEmptyCells() {
+        radial(selected = 2, sticky = false, entries = RadialEntry.spread(RadialEntry.defaults.filterNotNull().take(4)))
+        shot("radial_overlay_four")
+    }
+
+    @Test
+    fun radialToast() {
+        compose.setContent { StreamFrame { RadialToast(RadialEntry.Builtin(RadialItem.COPY), Modifier.align(Alignment.BottomCenter)) } }
+        shot("radial_toast")
+    }
+
+    private fun menu(page: MenuState, reconnecting: Boolean = false, streamMode: String = "extend") {
+        val model = MenuModel(
+            menu = page,
+            macName = "Mac Studio",
+            status = menuStatus(streamMode, RouteKind.LAN.label, stats, reconnecting),
+            statusColor = if (reconnecting) StatusColor.RED else StatusColor.GREEN,
+            tint = videoTint,
+            reconnecting = reconnecting,
+            streamMode = streamMode,
+            zoomed = true,
+            settings = Settings.defaults,
+            onBack = {},
+            onDismissed = {},
+            onItemClosed = {},
+            onKeyboard = {},
+            onMode = {},
+            onResetZoom = {},
+            onSettingsPage = {},
+            onMacPage = {},
+            onDisplayPage = {},
+            onMac = {},
+            onDisconnect = {},
+            onSetting = { _, _ -> },
+        )
+        compose.setContent { StreamFrame { MenuSheet(model) } }
+    }
+
+    @Test
+    fun menuSheet() {
+        menu(MenuState.MENU)
+        shot("menu_sheet")
+    }
+
+    @Test
+    fun menuSheetWhileReconnecting() {
+        menu(MenuState.MENU, reconnecting = true)
+        shot("menu_sheet_reconnecting")
+    }
+
+    @Test
+    fun menuSheetOnTheTestPattern() {
+        menu(MenuState.MENU, streamMode = "test")
+        shot("menu_sheet_test")
+    }
+
+    @Test
+    fun displayModePage() {
+        menu(MenuState.DISPLAY)
+        shot("menu_display")
+    }
+
+    @Test
+    fun macPageToItsEndAndLockConfirmation() {
+        menu(MenuState.MAC)
+        shot("menu_mac")
+        compose.onNodeWithText("Lock screen").performScrollTo()
+        shot("menu_mac_end")
+        compose.onNodeWithText("Lock screen").performClick()
+        shot("menu_mac_lock_confirm")
+    }
+
+    @Test
+    fun liveSettingsPageToItsEnd() {
+        menu(MenuState.SETTINGS)
+        shot("menu_settings")
+        compose.onNodeWithText("Other settings can be changed in Settings when not connected.").performScrollTo()
+        shot("menu_settings_end")
+    }
+
+    @Test
+    fun preeditAndKeyRow() {
+        compose.setContent {
+            StreamFrame {
+                // The insets padding of MainActivity is left out: Robolectric reports no IME inset.
+                Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
+                    PreeditBar("nihongo", cursor = 4)
+                    KeyRow(
+                        mods = ModKeys().tapped(ModKey.CMD).tapped(ModKey.SHIFT).tapped(ModKey.SHIFT),
+                        onMod = {},
+                        onKey = { _, _ -> },
+                        onKeyReleased = {},
+                        // The real field is an AndroidView input sink of this size.
+                        field = { Box(Modifier.size(width = 48.dp, height = 40.dp)) },
+                    )
+                }
+            }
+        }
+        shot("key_row")
+    }
+
+    companion object {
+        @JvmStatic
+        @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
+        fun sizes() = FoldSize.entries.map { arrayOf<Any>(it) }
+    }
+}
