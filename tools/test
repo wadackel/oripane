@@ -24,7 +24,9 @@ Options:
   --verbose           also stream every command's output, for CI
   -h, --help          print this help
 
-Each step's full output goes to $TMPDIR/oripane-test/<step>.log (/tmp when TMPDIR is
+The summary line names the commit the run started on, with "+ uncommitted changes" when
+the tree then had any, tracked or untracked, so a claim that a commit passed can be read
+off it. Each step's full output goes to $TMPDIR/oripane-test/<step>.log (/tmp when TMPDIR is
 unset), and the summary line ends with that directory. Inside nix develop -c, TMPDIR is
 a fresh /tmp/nix-shell.XXXXXX on every call. Two runs at once share the same logs.
 
@@ -275,6 +277,18 @@ async function android(log: string): Promise<Result> {
 
 const runners: Record<Step, (log: string) => Promise<Result>> = { host, vectors, android };
 
+// Read before the steps, since what they test is the tree as it was when the run began.
+function testedTree(): string {
+  const git = (...a: string[]) => Bun.spawnSync(["git", "-C", root, ...a], { env, stdout: "pipe", stderr: "pipe" });
+  const head = git("rev-parse", "--short=12", "HEAD");
+  if (head.exitCode !== 0) return "on an unknown commit";
+  // Named, since status.showUntrackedFiles=no would otherwise hide a new file from the check.
+  const status = git("--no-optional-locks", "status", "--porcelain", "--untracked-files=normal");
+  const dirty = status.exitCode !== 0 || status.stdout.toString().trim() !== "";
+  return `on ${head.stdout.toString().trim()}${dirty ? " + uncommitted changes" : ""}`;
+}
+const tree = testedTree();
+
 const started = performance.now();
 mkdirSync(logDir, { recursive: true });
 const results: Result[] = [];
@@ -290,7 +304,7 @@ for (const step of options.step === undefined ? steps : [options.step]) {
 
 const passed = results.filter((r) => r.ok).map((r) => r.summary);
 const failures = results.filter((r) => !r.ok).map((r) => r.summary);
-const tail = `(${Math.round((performance.now() - started) / 1000)} s, logs: ${logDir})`;
+const tail = `${tree} (${Math.round((performance.now() - started) / 1000)} s, logs: ${logDir})`;
 const summary =
   failures.length === 0
     ? `ok: ${passed.join(", ")} ${tail}`
