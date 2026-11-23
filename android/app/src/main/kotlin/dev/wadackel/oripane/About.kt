@@ -23,10 +23,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -186,23 +183,23 @@ fun rememberBuildInfo(): BuildInfo {
 }
 
 /** What a sheet of About shows: Oripane's own licence, or one row of the list. */
-private sealed interface AboutSheet {
-    data object Own : AboutSheet
+sealed interface AboutSheet {
+    data class Own(val license: NoticeLicense) : AboutSheet
     data class Notice(val notice: OpenSourceNotice) : AboutSheet
 }
 
 /**
  * About's page body: the mark, name and build in the middle, then the source and the licence on
- * one surface and the open-source list on another. A row opens its notice in a sheet. Read on
- * the main thread: the definitions are about 25 KB and the reading takes a few milliseconds.
+ * one surface and the open-source list on another. A row asks [onSheet] to open its notice, which
+ * [AboutNoticeSheet] shows. Read on the main thread: the definitions are about 25 KB and the
+ * reading takes a few milliseconds.
  */
 @Composable
-fun AboutBody(color: androidx.compose.ui.graphics.Color = Palette.surface1) {
+fun AboutBody(color: androidx.compose.ui.graphics.Color = Palette.surface1, onSheet: (AboutSheet) -> Unit) {
     val context = LocalContext.current
     val content = remember(context) { loadAboutContent(context) }
     val build = rememberBuildInfo()
     val uri = LocalUriHandler.current
-    var sheet by remember { mutableStateOf<AboutSheet?>(null) }
     Column(Modifier.fillMaxWidth().padding(top = Space.s, bottom = Space.l), horizontalAlignment = Alignment.CenterHorizontally) {
         Image(painterResource(R.drawable.oripane_symbol), contentDescription = null, modifier = Modifier.size(64.dp))
         Text("Oripane", style = Type.title, color = Palette.text, modifier = Modifier.padding(top = Space.s))
@@ -211,16 +208,20 @@ fun AboutBody(color: androidx.compose.ui.graphics.Color = Palette.surface1) {
     SettingsCard(
         listOf(
             { p -> ExternalRow("Source code", SOURCE_URL.removePrefix("https://"), p) { runCatching { uri.openUri(SOURCE_URL) }.onFailure { log("about source_link failed=${it.javaClass.simpleName}") } } },
-            { p -> LinkRow("License", p, value = content.ownLicense.label) { sheet = AboutSheet.Own } },
+            { p -> LinkRow("License", p, value = content.ownLicense.label) { onSheet(AboutSheet.Own(content.ownLicense)) } },
         ),
         color,
     )
     SectionLabel("Open source · ${content.notices.size}")
-    SettingsCard(content.notices.map { n -> { p: PaddingValues -> LinkRow(n.name, p, value = n.label) { sheet = AboutSheet.Notice(n) } } }, color)
-    when (val s = sheet) {
-        AboutSheet.Own -> NoticeSheet("Oripane", content.ownLicense.name, emptyList(), null, listOf(content.ownLicense)) { sheet = null }
-        is AboutSheet.Notice -> NoticeSheet(s.notice.name, "${s.notice.detail} · ${s.notice.licenses.joinToString(" / ") { it.name }}", s.notice.parts, s.notice.font, s.notice.licenses) { sheet = null }
-        null -> {}
+    SettingsCard(content.notices.map { n -> { p: PaddingValues -> LinkRow(n.name, p, value = n.label) { onSheet(AboutSheet.Notice(n)) } } }, color)
+}
+
+/** The sheet a row of About opened. */
+@Composable
+fun AboutNoticeSheet(sheet: AboutSheet, onDismiss: () -> Unit) {
+    when (sheet) {
+        is AboutSheet.Own -> NoticeSheet("Oripane", sheet.license.name, emptyList(), null, listOf(sheet.license), onDismiss)
+        is AboutSheet.Notice -> NoticeSheet(sheet.notice.name, "${sheet.notice.detail} · ${sheet.notice.licenses.joinToString(" / ") { it.name }}", sheet.notice.parts, sheet.notice.font, sheet.notice.licenses, onDismiss)
     }
 }
 

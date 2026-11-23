@@ -118,6 +118,9 @@ of the surface or to none.
 
 ## Screens
 
+A fold, an unfold or a new display size keeps the page, the section and any open sheet; only the
+layout changes with the width.
+
 ### Page
 
 A page is one column, at most 560 dp wide and centred (`Page`). Its 56 dp header holds a round
@@ -149,7 +152,10 @@ editor are pages.
 
 - **Structure:** an index of sections, each opening its page; on the inner screen the index stays
   on the left and the chosen section shows in a surface on the right, its groups a step lighter.
-  The chosen index row has a white ring, as a chosen tile does.
+  The two sit side by side only where the section's segments still show every label whole
+  (`SPLIT_SETTINGS`); a narrower window, as in split screen, keeps the index and its pages. Side by
+  side, Back leaves Settings. The chosen index row has a white ring, as a chosen tile does, and
+  its icon and words stay where the other rows' are.
 - **Sections:** Video (with the note that changes apply from the next connection), Touch & pointer,
   Gestures, Radial menu (opens its editor), Scrolling, About. Reset all settings is last, on its own surface.
 - **About** holds no settings, so it comes after them; its row's summary is the version. Its page

@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,12 +44,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -219,6 +223,17 @@ internal fun Chevron(tint: Color = Palette.textFaint, size: Dp = 16.dp) {
     Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = tint, modifier = Modifier.size(size))
 }
 
+
+/** How far a chosen index row's ring stands in from the row's edges. */
+private val RING_INSET = 4.dp
+
+private fun PaddingValues.narrowedBy(inset: Dp, direction: LayoutDirection) = PaddingValues(
+    start = (calculateStartPadding(direction) - inset).coerceAtLeast(0.dp),
+    top = calculateTopPadding(),
+    end = (calculateEndPadding(direction) - inset).coerceAtLeast(0.dp),
+    bottom = calculateBottomPadding(),
+)
+
 /**
  * A row that opens a page or a list of choices, showing the current [value] when it has one, or a
  * [sub] line under the label (the index of Settings). [selected] rings it: the pane beside it shows it.
@@ -233,9 +248,12 @@ internal fun LinkRow(
     selected: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val ring = if (selected) Modifier.padding(horizontal = 4.dp).clip(RoundedCornerShape(Radius.inner)).background(Color.White.copy(alpha = 0.06f)).border(1.5.dp, Palette.lead, RoundedCornerShape(Radius.inner)) else Modifier
+    val ring = if (selected) Modifier.padding(horizontal = RING_INSET).clip(RoundedCornerShape(Radius.inner)).background(Color.White.copy(alpha = 0.06f)).border(1.5.dp, Palette.lead, RoundedCornerShape(Radius.inner)) else Modifier
+    // The ring stands in from the row's edges; its content gives those dp back, so the chosen row's
+    // icon and text start where the other rows' do instead of jumping with every choice.
+    val padding = if (selected) contentPadding.narrowedBy(RING_INSET, LocalLayoutDirection.current) else contentPadding
     Row(
-        Modifier.fillMaxWidth().then(ring).clickable(onClick = onClick).padding(contentPadding).heightIn(min = Sizes.rowMin - 16.dp),
+        Modifier.fillMaxWidth().then(ring).clickable(onClick = onClick).padding(padding).heightIn(min = Sizes.rowMin - 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {

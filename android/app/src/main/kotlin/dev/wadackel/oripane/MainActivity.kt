@@ -528,22 +528,20 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
                         )
                     }
                 }
-                Screen.Settings, is Screen.SettingsPage -> SettingsScreen(
+                Screen.Settings -> SettingsScreen(
                     settings = settings,
-                    section = (page as? Screen.SettingsPage)?.section,
                     onChange = ::changeSettings,
                     onReset = { changeSettings(Settings.defaults) },
-                    onSection = { screen = Screen.SettingsPage(it) },
                     onMap = { screen = Screen.Map(it) },
                     onRadialMenu = { screen = Screen.RadialMenu },
-                    onBack = { screen = page.parent() ?: Screen.Connections },
+                    onBack = { screen = Screen.Connections },
                 )
                 is Screen.Map -> MapScreen(
                     mode = page.mode,
                     map = settings.mapFor(page.mode),
                     onChange = { m -> changeSettings(settings.withMap(page.mode, m)) },
                     onShortcut = { g, edit -> screen = Screen.GestureShortcut(page.mode, g, edit) },
-                    onBack = { screen = Screen.SettingsPage(SettingsSection.GESTURES) },
+                    onBack = { screen = Screen.Settings },
                 )
                 is Screen.GestureShortcut -> {
                     val map = settings.mapFor(page.mode)

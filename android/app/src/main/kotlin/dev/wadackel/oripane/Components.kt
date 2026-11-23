@@ -44,7 +44,9 @@ import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -181,7 +183,7 @@ fun <S : Any> PageStack(current: S, parentOf: (S) -> S?, onBack: (S) -> Unit, co
     val parent = parentOf(current)
     var swiping by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
-    PredictiveBackHandler(enabled = parent != null) { events ->
+    PredictiveBackHandler(enabled = parent != null && LocalPageShown.current) { events ->
         swiping = true
         progress = 0f
         try {
@@ -225,8 +227,19 @@ fun <S : Any> PageStack(current: S, parentOf: (S) -> S?, onBack: (S) -> Unit, co
     val offset = with(LocalDensity.current) { 30.dp.roundToPx() }
     transition.AnimatedContent(
         transitionSpec = { sharedAxisX(pageDepth(targetState, parentOf) > pageDepth(initialState, parentOf), offset) },
-    ) { page -> saved.SaveableStateProvider(page.toString()) { content(page) } }
+    ) { page ->
+        CompositionLocalProvider(LocalPageShown provides (page == current)) {
+            saved.SaveableStateProvider(page.toString()) { content(page) }
+        }
+    }
 }
+
+/**
+ * Whether the page around this point is its [PageStack]'s current one. A stack inside a page
+ * registers its back handler after the outer one, so it would win the back press while its page
+ * still slides out and take a step on a page no longer shown.
+ */
+private val LocalPageShown = compositionLocalOf { true }
 
 private const val PAGE_MS = 300
 
