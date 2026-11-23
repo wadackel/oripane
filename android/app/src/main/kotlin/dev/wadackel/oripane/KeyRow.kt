@@ -127,7 +127,6 @@ fun KeyRow(
     onKey: (Int, Boolean) -> Unit,
     /** A held key was let go. */
     onKeyReleased: () -> Unit,
-    field: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -144,7 +143,6 @@ fun KeyRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        field()
         ModKey.entries.forEach { k ->
             val state = mods[k]
             val spokenState = when (state) {
