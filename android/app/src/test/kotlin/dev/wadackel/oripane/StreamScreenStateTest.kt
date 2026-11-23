@@ -94,6 +94,18 @@ class StreamScreenStateTest {
     }
 
     @Test
+    fun closingTheStatsDetailGoesBackToTheDotAndIsLoggedOnlyWhenItWasOpen() {
+        state.onStats(Stats())
+        state.closeStats()
+        assertThat(lines).isEmpty()
+
+        state.toggleStats()
+        state.closeStats()
+        assertThat(state.statsExpanded).isFalse()
+        assertThat(lines).containsExactly("ui stats_detail=true", "ui stats_detail=false").inOrder()
+    }
+
+    @Test
     fun awdlTurningOnShowsTheMarkAndANoteAndTheBannerComesFromTheMark() {
         state.onAwdlWarning(true)
         assertThat(lines).containsExactly("ui awdl_mark shown", "ui status_note text=\"${awdlNote.text}\"").inOrder()

@@ -110,12 +110,6 @@ fun sectionSummary(section: SettingsSection, s: Settings, build: BuildInfo) = wh
 
 fun radialSummary(s: Settings) = "${s.radialCount} items"
 
-/** How the touch modes differ, under each in the Touch mode sheet. */
-private val touchModeNotes = mapOf(
-    TouchMode.DIRECT to "Your finger presses where it touches, like a touchscreen.",
-    TouchMode.TRACKPAD to "The phone is a trackpad; a cursor moves on the Mac.",
-)
-
 private const val CURSOR_NOTE = "Trackpad mode only."
 private const val INCOGNITO_NOTE = "The keyboard does not learn what you type."
 
@@ -163,7 +157,7 @@ fun liveSettingGroups(s: Settings, set: (Settings, String) -> Unit): List<Settin
     SettingsGroup(
         "Touch & pointer",
         listOf(
-            { p -> Choices("Touch mode", TouchMode.entries.map { it to modeLabel(it) }, s.touchMode, note = touchModeNote, modifier = Modifier.padding(p)) { set(s.copy(touchMode = it), "touch.mode=${it.key}") } },
+            { p -> Choices("Touch mode", TouchMode.entries.map { it to modeLabel(it) }, s.touchMode, note = touchModeNote(s.touchMode), modifier = Modifier.padding(p)) { set(s.copy(touchMode = it), "touch.mode=${it.key}") } },
             { p -> SwitchRow("Incognito keyboard", s.incognitoKeyboard, p, note = INCOGNITO_NOTE) { set(s.copy(incognitoKeyboard = it), "keyboard.incognito=$it") } },
         ),
     ),
@@ -277,7 +271,7 @@ fun SettingsScreen(
         }
     }
     if (touchSheet) {
-        DescribedChoiceSheet("Touch mode", TouchMode.entries, settings.touchMode, ::modeLabel, { touchModeNotes.getValue(it) }, onDismiss = { touchSheet = false }) {
+        DescribedChoiceSheet("Touch mode", TouchMode.entries, settings.touchMode, ::modeLabel, ::touchModeNote, onDismiss = { touchSheet = false }) {
             touchSheet = false
             onChange(settings.copy(touchMode = it))
         }

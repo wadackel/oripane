@@ -50,7 +50,6 @@ object Palette {
     val danger = Color(0xFFFF7A70)
     val statusGood = Color(0xFF3DD68C)
     val statusWarn = Color(0xFFF2B84B)
-    val statusBad = danger
     val statusUnknown = textFaint
 
     /** Keys of the key row over the video. */

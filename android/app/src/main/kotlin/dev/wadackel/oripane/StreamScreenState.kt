@@ -125,6 +125,13 @@ class StreamScreenState(private val log: (String) -> Unit) {
         log("ui stats_detail=$statsExpanded")
     }
 
+    /** Back to the dot, for when the dot that would close the readout goes (Show latency turned off). */
+    fun closeStats() {
+        if (!statsExpanded) return
+        statsExpanded = false
+        log("ui stats_detail=false")
+    }
+
     fun onAwdlWarning(on: Boolean) {
         val was = awdl.active
         updateAwdl(awdl.onWarning(on))

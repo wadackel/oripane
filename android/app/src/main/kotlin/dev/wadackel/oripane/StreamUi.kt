@@ -37,12 +37,12 @@ enum class MenuCorner(val key: String, val top: Boolean, val start: Boolean) {
     }
 }
 
-enum class StatusColor(val logName: String) { GREY("grey"), RED("red"), YELLOW("yellow"), GREEN("green") }
+/** The status colours of docs/design.md: good, warning and unknown. Red stays for danger. */
+enum class StatusColor(val logName: String) { GREY("grey"), YELLOW("yellow"), GREEN("green") }
 
 /** The status dot's colour; the first matching row of the spec's table wins. */
 fun statusColor(stats: Stats?, reconnecting: Boolean): StatusColor = when {
-    reconnecting -> StatusColor.RED
-    stats == null -> StatusColor.GREY
+    reconnecting || stats == null -> StatusColor.GREY
     // An idle screen sends no frames, so the latency is stale there and only loss, RTT and whether anything arrives count.
     (stats.fps > 0 && stats.totalMs >= 100) || stats.lossPercent >= 1 || stats.rttMs >= 100 || stats.noMedia -> StatusColor.YELLOW
     else -> StatusColor.GREEN

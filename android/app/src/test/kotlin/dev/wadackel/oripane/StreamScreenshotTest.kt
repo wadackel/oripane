@@ -201,17 +201,23 @@ class StreamScreenshotTest(private val size: FoldSize) {
         shot("radial_toast")
     }
 
-    private fun menu(page: MenuState, reconnecting: Boolean = false, streamMode: String = "extend") {
+    private fun menu(
+        page: MenuState,
+        reconnecting: Boolean = false,
+        streamMode: String = "extend",
+        macName: String = "Mac Studio",
+        settings: Settings = Settings.defaults,
+    ) {
         val model = MenuModel(
             menu = page,
-            macName = "Mac Studio",
+            macName = macName,
             status = menuStatus(streamMode, RouteKind.LAN.label, stats, reconnecting),
-            statusColor = if (reconnecting) StatusColor.RED else StatusColor.GREEN,
+            statusColor = statusColor(stats, reconnecting),
             tint = videoTint,
             reconnecting = reconnecting,
             streamMode = streamMode,
             zoomed = true,
-            settings = Settings.defaults,
+            settings = settings,
             onBack = {},
             onDismissed = {},
             onItemClosed = {},
@@ -238,6 +244,12 @@ class StreamScreenshotTest(private val size: FoldSize) {
     fun menuSheetWhileReconnecting() {
         menu(MenuState.MENU, reconnecting = true)
         shot("menu_sheet_reconnecting")
+    }
+
+    @Test
+    fun menuSheetEndsALongMacNameWithAnEllipsis() {
+        menu(MenuState.MENU, macName = "Wide_Mac_Name_For_The_Sheet_Header_Check_Long_Long_Long_Name")
+        shot("menu_sheet_long_name")
     }
 
     @Test
@@ -268,6 +280,13 @@ class StreamScreenshotTest(private val size: FoldSize) {
         shot("menu_settings")
         compose.onNodeWithText("Other settings can be changed in Settings when not connected.").performScrollTo()
         shot("menu_settings_end")
+    }
+
+    @Test
+    fun liveSettingsDescribeTheChosenTouchMode() {
+        menu(MenuState.SETTINGS, settings = Settings.defaults.copy(touchMode = TouchMode.TRACKPAD))
+        compose.onNodeWithText(touchModeNote(TouchMode.TRACKPAD)).assertExists()
+        compose.onNodeWithText(touchModeNote(TouchMode.DIRECT)).assertDoesNotExist()
     }
 
     @Test

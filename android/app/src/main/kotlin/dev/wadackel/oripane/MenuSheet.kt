@@ -53,6 +53,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -182,10 +183,10 @@ private fun MenuItems(m: MenuModel, closeThen: (() -> Unit) -> Unit) {
             Icon(painterResource(macKindIcon(m.macName)), contentDescription = null, tint = Palette.icon, modifier = Modifier.size(20.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(m.macName, style = Type.title.copy(fontSize = 20.sp), color = Palette.text, maxLines = 1)
+            Text(m.macName, style = Type.title.copy(fontSize = 20.sp), color = Palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 2.dp)) {
                 Box(Modifier.size(7.dp).background(m.statusColor.color(), CircleShape))
-                Text(m.status, style = Type.note, color = Palette.textMuted, maxLines = 1)
+                Text(m.status, style = Type.note, color = Palette.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         RoundButton(R.drawable.ic_power, "Disconnect", background = Palette.well, tint = Palette.danger) { closeThen(m.onDisconnect) }

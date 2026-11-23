@@ -776,7 +776,8 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
                 expanded = streamUi.statsExpanded,
                 details = st?.let { { StatsOverlay(it, s, streamUi.dataSaverOn) } },
                 awdlMark = streamUi.awdl.mark,
-                onToggle = streamUi::toggleStats,
+                // The readout belongs to the dot: with the dot hidden, a tap on the reconnect or AWDL note opens nothing.
+                onToggle = { if (settings.showStats) streamUi.toggleStats() },
                 onMark = streamUi::tapAwdlMark,
                 modifier = Modifier.align(menuCorner.opposite.alignment()),
             )
@@ -808,6 +809,9 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
             }
             LaunchedEffect(reconnecting) {
                 if (reconnecting) streamUi.closeOverlays("reconnect")
+            }
+            LaunchedEffect(settings.showStats) {
+                if (!settings.showStats) streamUi.closeStats()
             }
             LaunchedEffect(streamUi.menu) {
                 if (streamUi.menu != MenuState.CLOSED) streamUi.closeOverlays("menu")

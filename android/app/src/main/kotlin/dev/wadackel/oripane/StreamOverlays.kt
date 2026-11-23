@@ -146,7 +146,6 @@ fun MenuButton(corner: MenuCorner, parentWidth: Float, parentHeight: Float, onTa
 
 internal fun StatusColor.color() = when (this) {
     StatusColor.GREY -> Palette.statusUnknown
-    StatusColor.RED -> Palette.statusBad
     StatusColor.YELLOW -> Palette.statusWarn
     StatusColor.GREEN -> Palette.statusGood
 }
