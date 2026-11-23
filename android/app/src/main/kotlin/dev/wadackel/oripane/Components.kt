@@ -151,7 +151,11 @@ fun SwitchRow(label: String, checked: Boolean, contentPadding: PaddingValues, no
 
 fun modeLabel(m: TouchMode) = if (m == TouchMode.DIRECT) "Direct" else "Trackpad"
 
-const val touchModeNote = "Direct presses where you touch."
+/** What [m] does, in one sentence: under each mode in the Touch mode sheet, and under the segments in Live settings. */
+fun touchModeNote(m: TouchMode) = when (m) {
+    TouchMode.DIRECT -> "Your finger presses where it touches, like a touchscreen."
+    TouchMode.TRACKPAD -> "The phone is a trackpad; a cursor moves on the Mac."
+}
 
 val speeds = listOf(Speed.SLOW to "Slow", Speed.NORMAL to "Normal", Speed.FAST to "Fast")
 val directions = listOf(false to "Standard", true to "Reversed")

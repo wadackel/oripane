@@ -39,9 +39,10 @@ class StreamUiTest {
     }
 
     @Test
-    fun reconnectingIsRedEvenWithoutStats() {
-        assertThat(statusColor(null, reconnecting = true)).isEqualTo(StatusColor.RED)
-        assertThat(statusColor(Stats(fps = 60.0, totalMs = 20.0), reconnecting = true)).isEqualTo(StatusColor.RED)
+    fun reconnectingIsGreyWhateverTheLastStatsSaid() {
+        assertThat(statusColor(null, reconnecting = true)).isEqualTo(StatusColor.GREY)
+        assertThat(statusColor(Stats(fps = 60.0, totalMs = 20.0), reconnecting = true)).isEqualTo(StatusColor.GREY)
+        assertThat(statusColor(Stats(fps = 60.0, totalMs = 300.0), reconnecting = true)).isEqualTo(StatusColor.GREY)
     }
 
     @Test
@@ -59,7 +60,7 @@ class StreamUiTest {
     @Test
     fun noVideoComingIsYellowEvenWithAQuietLink() {
         assertThat(statusColor(Stats(fps = 0.0, totalMs = 0.0, lossPercent = 0.0, mbps = 0.0, rttMs = 3.0, noMedia = true), false)).isEqualTo(StatusColor.YELLOW)
-        assertThat(statusColor(Stats(noMedia = true), reconnecting = true)).isEqualTo(StatusColor.RED)
+        assertThat(statusColor(Stats(noMedia = true), reconnecting = true)).isEqualTo(StatusColor.GREY)
     }
 
     @Test
