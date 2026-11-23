@@ -48,11 +48,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
@@ -291,29 +293,57 @@ private fun StateDot(state: MacState) {
 
 /**
  * The display mode on the card: the three modes as segments as tall as the Connect button beside
- * them, each a small drawing of the phone and the Mac with its name under it.
+ * them, each a small drawing of the phone and the Mac with its name under it. Large text makes
+ * the segments taller, and when the names no longer fit side by side the segments stack, so a
+ * name is never split inside the word.
  */
 @Composable
 private fun DisplayModeControl(mode: String, onMode: (String) -> Unit, modifier: Modifier) {
-    Row(
-        modifier.height(Sizes.primary).clip(RoundedCornerShape(Radius.inner)).background(Palette.well).padding(3.dp).selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        displayModes.forEach { (key, label) ->
-            val on = key == mode
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(Radius.innermost))
-                    .background(if (on) Palette.chosen else Color.Transparent)
-                    .selectable(selected = on, role = Role.RadioButton) { onMode(key) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                val ink = if (on) Palette.text else Palette.textMuted
-                Canvas(Modifier.size(16.dp, 10.2.dp)) { modeArt(key, ink) }
-                Text(label, fontFamily = Inter, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Medium, color = ink, modifier = Modifier.padding(top = 2.dp))
+    Layout(
+        content = {
+            displayModes.forEach { (key, label) ->
+                val on = key == mode
+                Column(
+                    Modifier
+                        .clip(RoundedCornerShape(Radius.innermost))
+                        .background(if (on) Palette.chosen else Color.Transparent)
+                        .selectable(selected = on, role = Role.RadioButton) { onMode(key) }
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    val ink = if (on) Palette.text else Palette.textMuted
+                    Canvas(Modifier.size(16.dp, 10.2.dp)) { modeArt(key, ink) }
+                    Text(
+                        label, fontFamily = Inter, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Medium, color = ink,
+                        maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp).padding(horizontal = 4.dp),
+                    )
+                }
+            }
+        },
+        modifier = modifier.clip(RoundedCornerShape(Radius.inner)).background(Palette.well).padding(3.dp).selectableGroup(),
+    ) { segments, constraints ->
+        val gap = 3.dp.roundToPx()
+        val least = (Sizes.primary - 6.dp).roundToPx()
+        val gaps = gap * (segments.size - 1)
+        val widest = segments.maxOf { it.maxIntrinsicWidth(Constraints.Infinity) }
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else widest * segments.size + gaps
+        if (widest * segments.size + gaps <= width) {
+            // Shares out the spare pixels as Row's weights do, so the default sizes draw as before.
+            val share = (width - gaps) / segments.size
+            val spare = width - gaps - share * segments.size
+            val widths = segments.indices.map { share + if (it < spare) 1 else 0 }
+            val height = maxOf(least, segments.indices.maxOf { segments[it].minIntrinsicHeight(widths[it]) })
+            val placed = segments.indices.map { segments[it].measure(Constraints.fixed(widths[it], height)) }
+            layout(width, height) {
+                var x = 0
+                placed.forEach { it.place(x, 0); x += it.width + gap }
+            }
+        } else {
+            val placed = segments.map { it.measure(Constraints.fixed(width, maxOf(least, it.minIntrinsicHeight(width)))) }
+            layout(width, placed.sumOf { it.height } + gaps) {
+                var y = 0
+                placed.forEach { it.place(0, y); y += it.height + gap }
             }
         }
     }

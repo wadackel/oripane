@@ -86,7 +86,9 @@ one.
 - **Secondary actions:** round grey 36 dp buttons with a 44 dp touch target (`RoundButton`): back,
   settings, details, add. A secondary action with words is a grey pill (`SecondaryButton`).
 - **Controls side by side share a height:** the display-mode control beside Connect is 44 dp, as
-  Connect is.
+  Connect is. Large text makes its segments taller rather than cut the drawing or the name, and
+  when the three names no longer fit side by side the segments stack, one above another, beside
+  Connect: a mode's name is never split inside the word.
 - **Danger:** something that cannot be undone sits on a surface of its own at the end of the page,
   red words and a red icon (`DangerButton`), and asks first (`ConfirmDialog`: the confirming word
   red, Cancel plain).
