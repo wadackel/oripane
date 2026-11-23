@@ -57,7 +57,8 @@ private val radialItemGroups: List<Pair<String, List<RadialItem>>> =
 /**
  * The radial menu's vocabulary for one place, on the menu or on a gesture: [fixed] choices of the
  * place's own first, then every built-in item by group, then a shortcut of the user's own. An item
- * in [taken] cannot be picked again; [current] is marked.
+ * in [taken], by the cell it is in, cannot be picked again and says which cell holds it; [current]
+ * is marked.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +66,7 @@ internal fun EntrySheet(
     title: String?,
     fixed: List<GestureAction>,
     current: GestureAction?,
-    taken: Set<RadialItem>,
+    taken: Map<RadialItem, Int>,
     onPick: (GestureAction) -> Unit,
     onShortcut: (edit: Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -99,11 +100,16 @@ internal fun EntrySheet(
             radialItemGroups.forEach { (heading, items) ->
                 SheetHeading(heading)
                 items.forEach { item ->
-                    val enabled = item !in taken
+                    val heldIn = taken[item]
+                    val enabled = heldIn == null
                     val entry = RadialEntry.Builtin(item)
                     SheetRow(enabled = enabled, onClick = { onPick(GestureAction.Run(entry)) }) {
                         RadialEntryCircle(entry, 32.dp, on = entry == currentEntry, Modifier.graphicsLayer { alpha = if (enabled) 1f else 0.38f }, description = null)
-                        Text(item.label, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f)) {
+                            Text(item.label, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
+                            // Faded alone, the row would not say why it cannot be picked or where to free it.
+                            if (heldIn != null) Text("In the ${radialCellNames[heldIn].lowercase()} cell", style = Type.note, color = Palette.textMuted, modifier = Modifier.padding(top = 2.dp))
+                        }
                         item.shortcut?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f)) }
                     }
                 }

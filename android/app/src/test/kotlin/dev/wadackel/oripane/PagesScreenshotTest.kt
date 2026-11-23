@@ -3,11 +3,13 @@ package dev.wadackel.oripane
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -26,6 +28,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
@@ -188,6 +191,16 @@ class PagesScreenshotTest(private val size: FoldSize) {
     }
 
     @Test
+    fun aLongCustomShortcutNameOnAGestureLeavesItsLabelWholeWords() {
+        val long = RadialEntry.Custom(KeyEvent.KEYCODE_W, ModKey.CMD.meta, "W".repeat(RadialMenuJson.NAME_MAX), RadialLook.Text)
+        map(TouchMode.DIRECT, Settings.defaults.mapFor(TouchMode.DIRECT).with(Gesture.TWO_FINGER_LONG_PRESS, GestureAction.Run(long)))
+        shot("map_direct_long_shortcut")
+        // An uncapped value left the label a few letters a line, five lines on the cover screen.
+        val label = compose.onNodeWithText(Gesture.TWO_FINGER_LONG_PRESS.label, useUnmergedTree = true).fetchSemanticsNode().size.height
+        assertThat(label).isAtMost(with(compose.density) { (Type.label.lineHeight * 2).roundToPx() })
+    }
+
+    @Test
     fun trackpadGesturesPageToItsEnd() {
         map(TouchMode.TRACKPAD)
         shot("map_trackpad")
@@ -263,6 +276,20 @@ class PagesScreenshotTest(private val size: FoldSize) {
         // Only the row carries this description: the ring's circles are not readable.
         compose.onNodeWithContentDescription("Top, ${RadialEntry.defaults.first()!!.spokenName()}").performClick()
         shot("radial_menu_entry_sheet")
+        // Copy is in the top right cell of the defaults: the sheet says so where Copy cannot be picked.
+        compose.onNodeWithText("In the top right cell").assertExists()
+    }
+
+    @Test
+    fun radialMenuAtTheLargestFontSize() {
+        compose.setContent {
+            val base = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(base.density, fontScale = 2f)) {
+                PageFrame { RadialMenuScreen(RadialEntry.defaults, onChange = {}, onShortcut = { _, _ -> }, onBack = {}) }
+            }
+        }
+        compose.onNodeWithContentDescription("Top, ${RadialEntry.defaults.first()!!.spokenName()}").performScrollTo()
+        shot("radial_menu_largest_font")
     }
 
     private val threeItems = RadialEntry.spread(listOf(RadialItem.COPY, RadialItem.PASTE, RadialItem.KEYBOARD).map(RadialEntry::Builtin))

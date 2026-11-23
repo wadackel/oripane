@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -52,7 +53,7 @@ internal const val RADIAL_MENU_TITLE = "Radial menu"
 /** The editor's plate, for tests: TalkBack reads the rows instead. */
 internal const val RADIAL_PLATE_TAG = "radialPlate"
 
-/** The height of one row of the menu's list. */
+/** The least height of one row of the menu's list: a larger system font makes it taller. */
 private val RADIAL_ROW = 64.dp
 
 /** An item dragged on the plate: the cell it left and the cell under the finger. */
@@ -117,7 +118,7 @@ fun RadialMenuScreen(menu: List<RadialEntry?>, onChange: (List<RadialEntry?>) ->
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .height(RADIAL_ROW)
+                        .heightIn(min = RADIAL_ROW)
                         .clickable { picker = cell }
                         .semantics {
                             if (entry != null) {
@@ -127,7 +128,7 @@ fun RadialMenuScreen(menu: List<RadialEntry?>, onChange: (List<RadialEntry?>) ->
                                 )
                             }
                         }
-                        .padding(start = 16.dp, end = 4.dp),
+                        .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -172,7 +173,7 @@ fun RadialMenuScreen(menu: List<RadialEntry?>, onChange: (List<RadialEntry?>) ->
             title = radialCellNames[cell],
             fixed = emptyList(),
             current = menu[cell]?.let(GestureAction::Run),
-            taken = menu.filterIndexed { i, _ -> i != cell }.mapNotNull { (it as? RadialEntry.Builtin)?.item }.toSet(),
+            taken = menu.withIndex().filter { it.index != cell }.mapNotNull { (i, e) -> (e as? RadialEntry.Builtin)?.let { it.item to i } }.toMap(),
             onPick = { a ->
                 picker = null
                 val entry = (a as? GestureAction.Run)?.entry ?: return@EntrySheet

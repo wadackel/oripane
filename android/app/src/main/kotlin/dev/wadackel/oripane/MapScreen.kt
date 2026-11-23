@@ -27,7 +27,7 @@ fun MapScreen(mode: TouchMode, map: TouchMap, onChange: (TouchMap) -> Unit, onSh
             onChange(map.with(g, it))
         }
         if (g.catalog) {
-            EntrySheet(g.label, g.choices, map[g], taken = emptySet(), onPick = pick, onShortcut = { edit ->
+            EntrySheet(g.label, g.choices, map[g], taken = emptyMap(), onPick = pick, onShortcut = { edit ->
                 picking = null
                 onShortcut(g, edit)
             }, onDismiss = { picking = null })

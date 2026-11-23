@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 private val surfaceShape = RoundedCornerShape(Radius.surface)
 
@@ -263,7 +265,19 @@ internal fun LinkRow(
             if (sub != null) Text(sub, style = Type.note, color = Palette.textMuted, modifier = Modifier.padding(top = 2.dp))
         }
         // The label wraps on a narrow screen rather than the value: the value is what the row is read for.
-        if (value != null) Text(value, style = Type.value, color = Palette.textMuted, maxLines = 1)
+        // Uncapped, a long value (a custom shortcut's name) left the label a few letters a line, so
+        // past half the room the value is cut short instead.
+        if (value != null) Text(value, style = Type.value, color = Palette.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthAtMost(0.5f))
         Chevron()
     }
+}
+
+/**
+ * Measures with at most [fraction] of the width offered. `widthIn` takes a fixed dp and
+ * `fillMaxWidth` forces the width, while this keeps a short content as narrow as it is.
+ */
+private fun Modifier.widthAtMost(fraction: Float) = layout { measurable, constraints ->
+    val max = if (constraints.hasBoundedWidth) (constraints.maxWidth * fraction).roundToInt() else constraints.maxWidth
+    val placeable = measurable.measure(constraints.copy(minWidth = minOf(constraints.minWidth, max), maxWidth = max))
+    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
 }
