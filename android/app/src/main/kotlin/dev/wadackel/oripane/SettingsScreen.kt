@@ -235,7 +235,13 @@ fun SettingsScreen(
     var confirm by remember { mutableStateOf(false) }
     var touchSheet by remember { mutableStateOf(false) }
     var aboutSheet by remember { mutableStateOf<AboutSheet?>(null) }
-    LaunchedEffect(section) { section?.let { log("screen name=settings_${it.key}") } }
+    // The index logs itself only on the step back from a section: MainActivity logs Settings as it opens.
+    var loggedSection by remember { mutableStateOf<SettingsSection?>(null) }
+    LaunchedEffect(section) {
+        val shown = section
+        if (shown != null) log("screen name=settings_${shown.key}") else if (loggedSection != null) log("screen name=settings")
+        loggedSection = shown
+    }
     // The side insets are taken here, so the split is judged on the width its pane really gets; the
     // layouts' own safeDrawing padding then finds them consumed.
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
