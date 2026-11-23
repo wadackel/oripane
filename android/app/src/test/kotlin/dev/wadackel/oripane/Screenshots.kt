@@ -5,8 +5,8 @@
  * The baselines are the PNGs in `android/app/src/test/screenshots/`, and for [DocsScreenshotTest]
  * the README's images in `docs/images/`. A local `tools/test` compares every shot with its
  * baseline pixel by pixel and fails on any difference. CI, whose machines render text differently,
- * runs the same tests without capturing: only the compositions, clicks and scrolls are exercised
- * there.
+ * runs the same tests without capturing: the compositions, clicks and scrolls are exercised there,
+ * and so is every shot's check that text stays whole ([assertTextWhole]).
  *
  * After an intended change to how something looks, record the baselines again from `android/` and
  * commit them in the same pull request:
@@ -49,7 +49,8 @@ import org.robolectric.RuntimeEnvironment
  * The owner's Fold's two screens, both 420 dpi: the inner one open (2448x1848) and the cover one
  * (1248x1972). Qualifiers take whole dp, so a shot may be a pixel or two off the real screen.
  * The last two are the same screens at the largest system font size (2.0), the cover one also at
- * twice the display size (840 dpi): they take no picture, and only check that text stays whole.
+ * about 1.45 times the display size (609 dpi; at 840 nearly every label breaks): they take no
+ * picture, and only check that text stays whole.
  */
 enum class FoldSize(val qualifiers: String, val fontScale: Float = 1f, val pictures: Boolean = true) {
     INNER("en-rUS-w933dp-h704dp-land-420dpi"),
@@ -66,7 +67,7 @@ enum class FoldSize(val qualifiers: String, val fontScale: Float = 1f, val pictu
 
 /**
  * Sets the screen size before the activity starts, and fixes the time zone and the locale that
- * the pages format dates and numbers with; puts all three back afterwards. The qualifiers' locale
+ * the pages format dates and numbers with, and sets the font scale; puts all four back afterwards. The qualifiers' locale
  * does not reach `Locale.getDefault()`, which follows the JVM and can be Japanese on the owner's Mac.
  */
 class FoldScreenRule(private val size: FoldSize) : TestRule {

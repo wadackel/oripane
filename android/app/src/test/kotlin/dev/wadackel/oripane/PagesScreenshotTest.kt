@@ -39,7 +39,7 @@ import org.robolectric.ParameterizedRobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The pages and sheets shown while not connected, on both of the Fold's screens. */
+/** The pages and sheets shown while not connected, at every [FoldSize]. */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @Config(sdk = [35])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
