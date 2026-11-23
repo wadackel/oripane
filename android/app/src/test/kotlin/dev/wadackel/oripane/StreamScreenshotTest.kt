@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -22,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertWithMessage
@@ -318,6 +320,39 @@ class StreamScreenshotTest(private val size: FoldSize) {
         val bar = compose.onNodeWithTag("bar").fetchSemanticsNode().boundsInRoot
         assertWithMessage("menu button bottom %s, key bar top %s", button.bottom, bar.top).that(button.bottom).isLessThan(bar.top)
         shot("key_row")
+    }
+
+    /** Where a raised button snaps after a long press and a vertical move of `dy(its top)` px, over a bar 60% of the screen tall. */
+    private fun raisedButtonSnapsTo(dy: (buttonTop: Float) -> Float): MenuCorner? {
+        val m = metrics()
+        var snapped: MenuCorner? = null
+        compose.setContent {
+            StreamFrame {
+                val corner = MenuCorner.BOTTOM_END
+                MenuButton(corner, m.w, m.h, onTap = {}, onCorner = { snapped = it }, modifier = Modifier.align(corner.alignment()), keyBar = (m.h * 0.6f).toInt())
+            }
+        }
+        val button = compose.onNodeWithContentDescription("Menu")
+        val top = button.fetchSemanticsNode().boundsInRoot.top
+        button.performTouchInput {
+            down(center)
+            advanceEventTime(1000)
+            moveBy(Offset(0f, dy(top) / 2))
+            moveBy(Offset(0f, dy(top) / 2))
+            up()
+        }
+        compose.waitForIdle()
+        return snapped
+    }
+
+    @Test
+    fun aRaisedMenuButtonLetGoInPlaceStaysInItsBottomCorner() {
+        assertWithMessage("corner").that(raisedButtonSnapsTo { 1f }).isEqualTo(MenuCorner.BOTTOM_END)
+    }
+
+    @Test
+    fun aRaisedMenuButtonDraggedToTheTopSnapsToATopCorner() {
+        assertWithMessage("corner").that(raisedButtonSnapsTo { top -> -top }).isEqualTo(MenuCorner.TOP_END)
     }
 
     companion object {

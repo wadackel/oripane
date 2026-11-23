@@ -135,8 +135,8 @@ fun MenuButton(
     var sizePx by remember { mutableStateOf(0f) }
     val bar = keyBar?.takeIf { !corner.top }
     val density = LocalDensity.current
-    // Added back on release: the corner is judged from where the button rests without the keyboard,
-    // or a raised button let go in place would snap to a top corner under a tall keyboard.
+    // On release the halves are those of the screen above the keyboard and the row: against the
+    // whole screen, a raised button let go in place under a tall keyboard would snap to a top corner.
     val lift by rememberUpdatedState(bar?.let { WindowInsets.ime.getBottom(density) + it } ?: 0)
     val aboveKeyboard = if (bar != null) {
         Modifier.windowInsetsPadding(WindowInsets.ime).padding(bottom = with(density) { bar.toDp() })
@@ -155,9 +155,9 @@ fun MenuButton(
                 detectDragGesturesAfterLongPress(
                     onDrag = { change, d -> change.consume(); drag += d },
                     onDragEnd = {
-                        val c = origin + drag + Offset(sizePx / 2, sizePx / 2 + lift)
+                        val c = origin + drag + Offset(sizePx / 2, sizePx / 2)
                         drag = Offset.Zero
-                        onCorner(MenuCorner.nearest(c.x, c.y, parentWidth, parentHeight))
+                        onCorner(MenuCorner.nearest(c.x, c.y, parentWidth, parentHeight - lift))
                     },
                     onDragCancel = { drag = Offset.Zero },
                 )
