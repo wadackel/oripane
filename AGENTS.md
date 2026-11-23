@@ -50,7 +50,10 @@ images, pixel for pixel; CI runs the same tests without comparing, since it rend
 machines. A change meant to alter how the app looks records them again and commits the new images
 in the same pull request; the command is in the KDoc of `Screenshots.kt` in the app's tests. The
 README's pictures in `docs/images/` come from `DocsScreenshotTest` and are recorded and compared
-with them: open the changed ones to check they still show what the README says.
+with them: open the changed ones to check they still show what the README says. Every shot, in CI
+too, also fails on text that breaks inside a word or is cut off without "…", and the screenshot
+tests draw each screen again at the largest font and display sizes for that check alone
+(`TextWhole.kt`): a known case goes in its `knownText` list with an issue and an end date.
 
 CI splits this by cost. A pull request that touches `android/`, `spec/` or `LICENSE` runs the Kotlin tests
 and the debug APK build on Linux (`.github/workflows/android.yml`); a push to `main` that touches

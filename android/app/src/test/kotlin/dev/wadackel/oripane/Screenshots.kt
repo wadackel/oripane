@@ -48,10 +48,20 @@ import org.robolectric.RuntimeEnvironment
 /**
  * The owner's Fold's two screens, both 420 dpi: the inner one open (2448x1848) and the cover one
  * (1248x1972). Qualifiers take whole dp, so a shot may be a pixel or two off the real screen.
+ * The last two are the same screens at the largest system font size (2.0), the cover one also at
+ * twice the display size (840 dpi): they take no picture, and only check that text stays whole.
  */
-enum class FoldSize(val qualifiers: String) {
+enum class FoldSize(val qualifiers: String, val fontScale: Float = 1f, val pictures: Boolean = true) {
     INNER("en-rUS-w933dp-h704dp-land-420dpi"),
     COVER("en-rUS-w475dp-h751dp-port-420dpi"),
+    INNER_LARGEST_FONT("en-rUS-w933dp-h704dp-land-420dpi", fontScale = 2f, pictures = false),
+    COVER_LARGEST("en-rUS-w327dp-h518dp-port-609dpi", fontScale = 2f, pictures = false),
+    ;
+
+    companion object {
+        /** The two screens at the default sizes, for a test about one layout rather than every text. */
+        val screens = listOf(INNER, COVER)
+    }
 }
 
 /**
@@ -63,9 +73,11 @@ class FoldScreenRule(private val size: FoldSize) : TestRule {
     override fun apply(base: Statement, description: Description) = object : Statement() {
         override fun evaluate() {
             val qualifiers = RuntimeEnvironment.getQualifiers()
+            val fontScale = RuntimeEnvironment.getFontScale()
             val zone = TimeZone.getDefault()
             val locale = Locale.getDefault()
             RuntimeEnvironment.setQualifiers(size.qualifiers)
+            RuntimeEnvironment.setFontScale(size.fontScale)
             TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
             Locale.setDefault(Locale.US)
             try {
@@ -73,6 +85,7 @@ class FoldScreenRule(private val size: FoldSize) : TestRule {
             } finally {
                 Locale.setDefault(locale)
                 TimeZone.setDefault(zone)
+                RuntimeEnvironment.setFontScale(fontScale)
                 RuntimeEnvironment.setQualifiers(qualifiers)
             }
         }
@@ -89,12 +102,15 @@ internal val exact = RoborazziOptions(
 )
 
 /**
- * Captures the whole screen as `<name>_<size>.png`. The screen rather than the compose root,
- * because sheets and dialogs draw in windows of their own.
+ * Checks that every text on screen is whole ([assertTextWhole]), then captures the whole screen as
+ * `<name>_<size>.png` for a size that takes [FoldSize.pictures]. The screen rather than the compose
+ * root, because sheets and dialogs draw in windows of their own.
  */
 @OptIn(ExperimentalRoborazziApi::class)
 fun ComposeContentTestRule.shot(name: String, size: FoldSize) {
     waitForIdle()
+    assertTextWhole("${name}_${size.name.lowercase()}")
+    if (!size.pictures) return
     captureScreenRoboImage("src/test/screenshots/${name}_${size.name.lowercase()}.png", roborazziOptions = exact)
 }
 

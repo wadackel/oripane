@@ -31,6 +31,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.google.common.truth.Truth.assertThat
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -195,6 +196,8 @@ class PagesScreenshotTest(private val size: FoldSize) {
         val long = RadialEntry.Custom(KeyEvent.KEYCODE_W, ModKey.CMD.meta, "W".repeat(RadialMenuJson.NAME_MAX), RadialLook.Text)
         map(TouchMode.DIRECT, Settings.defaults.mapFor(TouchMode.DIRECT).with(Gesture.TWO_FINGER_LONG_PRESS, GestureAction.Run(long)))
         shot("map_direct_long_shortcut")
+        // At the largest sizes the label may take more lines; the shot's text check keeps its words whole.
+        if (!size.pictures) return
         // An uncapped value left the label a few letters a line, five lines on the cover screen.
         val label = compose.onNodeWithText(Gesture.TWO_FINGER_LONG_PRESS.label, useUnmergedTree = true).fetchSemanticsNode().size.height
         assertThat(label).isAtMost(with(compose.density) { (Type.label.lineHeight * 2).roundToPx() })
@@ -254,6 +257,8 @@ class PagesScreenshotTest(private val size: FoldSize) {
 
     @Test
     fun aDragOnThePlateMovesTheItemUnderTheFingerAndADragFromAnEmptyCellMovesNothing() {
+        // The drag is measured in cells at the default sizes; the largest ones are for the text checks.
+        assumeTrue(size.pictures)
         val saved = mutableListOf<List<RadialEntry?>>()
         compose.setContent { PageFrame { RadialMenuScreen(threeItems, onChange = { saved += it }, onShortcut = { _, _ -> }, onBack = {}) } }
         fun dragCells(from: Pair<Int, Int>, to: Pair<Int, Int>) = compose.onNodeWithTag(RADIAL_PLATE_TAG).performTouchInput {
@@ -276,6 +281,8 @@ class PagesScreenshotTest(private val size: FoldSize) {
         // Only the row carries this description: the ring's circles are not readable.
         compose.onNodeWithContentDescription("Top, ${RadialEntry.defaults.first()!!.spokenName()}").performClick()
         shot("radial_menu_entry_sheet")
+        // At the largest sizes the row lies below the sheet's first screen.
+        if (!size.pictures) return
         // Copy is in the top right cell of the defaults: the sheet says so where Copy cannot be picked.
         compose.onNodeWithText("In the top right cell").assertExists()
     }
