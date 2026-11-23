@@ -14,6 +14,9 @@ class HomeTest {
     private val imac = Discovered("iMac", "10.0.2.97", null)
     private val sameAsMini = Discovered("mini", "10.0.2.2", "mini")
 
+    private val portNote = "Leave out the port; Oripane uses 47800."
+    private val ipv6Note = "Oripane connects over IPv4; enter an IPv4 address or a name."
+
     @Test
     fun onlyNamesThatRepeatGetAnAddress() {
         val twin = mac("studio-2", 5).copy(name = "studio")
@@ -32,10 +35,18 @@ class HomeTest {
     fun aPortIsSeenAfterFullWidthCharactersAreNormalized() {
         assertThat(normalizeHost(" １０．０．２．２ ")).isEqualTo("10.0.2.2")
         assertThat(normalizeHost("10。0。2。2")).isEqualTo("10.0.2.2")
-        assertThat(hasPort(normalizeHost("10.0.2.2:47940"))).isTrue()
-        assertThat(hasPort(normalizeHost("10.0.2.2：４７９４０"))).isTrue()
-        assertThat(hasPort(normalizeHost("10.0.2.2"))).isFalse()
-        assertThat(hasPort(normalizeHost("mac.local"))).isFalse()
+        assertThat(addressProblem(normalizeHost("10.0.2.2:47940"))).isEqualTo(portNote)
+        assertThat(addressProblem(normalizeHost("10.0.2.2：４７９４０"))).isEqualTo(portNote)
+        assertThat(addressProblem(normalizeHost("10.0.2.2"))).isNull()
+        assertThat(addressProblem(normalizeHost("mac.local"))).isNull()
+        assertThat(addressProblem(normalizeHost("http://mac.local:47800"))).isEqualTo(portNote)
+    }
+
+    @Test
+    fun anIPv6AddressIsToldItIsNotSupportedRatherThanToLeaveOutAPort() {
+        for (typed in listOf("fe80::1", "::1", "2001:db8::1", "[::1]", "[::1]:47800", "fe80::1%wlan0", "ｆｅ８０：：１")) {
+            assertThat(addressProblem(normalizeHost(typed))).isEqualTo(ipv6Note)
+        }
     }
 
     @Test
