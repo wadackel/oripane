@@ -91,8 +91,6 @@ private fun gestureCount(map: TouchMap, mode: TouchMode) = Gesture.entries.count
 
 private val Settings.radialCount get() = radialMenu.count { it != null }
 
-private fun speedName(s: Speed) = speeds.first { it.first == s }.second
-
 private fun bandsSummary(s: ScrollStrip) = when (s) {
     ScrollStrip.RIGHT -> "bands on the right"
     ScrollStrip.LEFT -> "bands on the left"
@@ -102,7 +100,7 @@ private fun bandsSummary(s: ScrollStrip) = when (s) {
 /** What a section's row in the index says under its name: the values that matter most, at a glance. */
 fun sectionSummary(section: SettingsSection, s: Settings, build: BuildInfo) = when (section) {
     SettingsSection.VIDEO -> "${(s.scale * 100).toInt()}% · ${s.fps} fps · Data saver ${dataSaverOptions.first { it.first == s.dataSaver }.second.lowercase()}"
-    SettingsSection.TOUCH -> "${modeLabel(s.touchMode)} · cursor ${speedName(s.cursorSpeed).lowercase()}"
+    SettingsSection.TOUCH -> "${modeLabel(s.touchMode)} · cursor ${speedLabel(s.cursorSpeed.cursorFactor)}"
     SettingsSection.GESTURES -> "Direct ${gestureCount(s.mapDirect, TouchMode.DIRECT)} · Trackpad ${gestureCount(s.mapTrackpad, TouchMode.TRACKPAD)}"
     SettingsSection.SCROLLING -> "${directions.first { it.first == s.touchScroll.reverse }.second} · ${bandsSummary(s.scrollStrip)}"
     SettingsSection.ABOUT -> "Version ${build.version}"
@@ -113,6 +111,11 @@ fun radialSummary(s: Settings) = "${s.radialCount} items"
 private const val CURSOR_NOTE = "Trackpad mode only."
 private const val INCOGNITO_NOTE = "The keyboard does not learn what you type."
 
+/** Cursor speed, on the Touch & pointer page and in the live settings alike. */
+@Composable
+private fun CursorSpeedRow(s: Settings, p: PaddingValues, onChange: (SpeedStep) -> Unit) =
+    SpeedRow("Cursor speed", s.cursorSpeed, SpeedStep::cursorFactor, note = CURSOR_NOTE, modifier = Modifier.padding(p), onChange = onChange)
+
 /**
  * The scrolling groups, the same on the Scrolling page and in the live settings, where [named]
  * headings say they are about scrolling: the live settings have other groups beside them.
@@ -121,14 +124,14 @@ private fun scrollingGroups(s: Settings, set: (Settings, String) -> Unit, named:
     SettingsGroup(
         if (named) "Finger scroll" else "Finger",
         listOf(
-            { p -> Choices("Speed", speeds, s.touchScroll.speed, modifier = Modifier.padding(p)) { set(s.copy(touchScroll = s.touchScroll.copy(speed = it)), "scroll.touch.speed=${it.key}") } },
+            { p -> SpeedRow("Speed", s.touchScroll.speed, SpeedStep::scrollFactor, modifier = Modifier.padding(p)) { set(s.copy(touchScroll = s.touchScroll.copy(speed = it)), "scroll.touch.speed=${it.step}") } },
             { p -> Choices("Direction", directions, s.touchScroll.reverse, modifier = Modifier.padding(p)) { set(s.copy(touchScroll = s.touchScroll.copy(reverse = it)), "scroll.touch.reverse=$it") } },
         ),
     ),
     SettingsGroup(
         if (named) "Wheel scroll" else "Wheel",
         listOf(
-            { p -> Choices("Speed", speeds, s.wheelScroll.speed, modifier = Modifier.padding(p)) { set(s.copy(wheelScroll = s.wheelScroll.copy(speed = it)), "scroll.wheel.speed=${it.key}") } },
+            { p -> SpeedRow("Speed", s.wheelScroll.speed, SpeedStep::scrollFactor, modifier = Modifier.padding(p)) { set(s.copy(wheelScroll = s.wheelScroll.copy(speed = it)), "scroll.wheel.speed=${it.step}") } },
             { p -> Choices("Direction", directions, s.wheelScroll.reverse, modifier = Modifier.padding(p)) { set(s.copy(wheelScroll = s.wheelScroll.copy(reverse = it)), "scroll.wheel.reverse=$it") } },
         ),
     ),
@@ -158,6 +161,7 @@ fun liveSettingGroups(s: Settings, set: (Settings, String) -> Unit): List<Settin
         "Touch & pointer",
         listOf(
             { p -> Choices("Touch mode", TouchMode.entries.map { it to modeLabel(it) }, s.touchMode, note = touchModeNote(s.touchMode), modifier = Modifier.padding(p)) { set(s.copy(touchMode = it), "touch.mode=${it.key}") } },
+            { p -> CursorSpeedRow(s, p) { set(s.copy(cursorSpeed = it), "touch.cursorSpeed=${it.step}") } },
             { p -> SwitchRow("Incognito keyboard", s.incognitoKeyboard, p, note = INCOGNITO_NOTE) { set(s.copy(incognitoKeyboard = it), "keyboard.incognito=$it") } },
         ),
     ),
@@ -184,7 +188,7 @@ private fun sectionGroups(section: SettingsSection, s: Settings, onChange: (Sett
                 null,
                 listOf(
                     { p -> LinkRow("Touch mode", p, value = modeLabel(s.touchMode), onClick = onTouchMode) },
-                    { p -> Choices("Cursor speed", speeds, s.cursorSpeed, note = CURSOR_NOTE, modifier = Modifier.padding(p)) { onChange(s.copy(cursorSpeed = it)) } },
+                    { p -> CursorSpeedRow(s, p) { onChange(s.copy(cursorSpeed = it)) } },
                     { p -> SwitchRow("Incognito keyboard", s.incognitoKeyboard, p, note = INCOGNITO_NOTE) { onChange(s.copy(incognitoKeyboard = it)) } },
                 ),
             ),

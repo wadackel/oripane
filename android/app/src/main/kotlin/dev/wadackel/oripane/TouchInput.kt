@@ -71,15 +71,16 @@ class TouchInput(
 
     /**
      * Settings changed while connected. Only a new touch mode needs a new recognizer, and it takes
-     * over the frame's placement on the screen and the viewport; the scroll settings go into the
-     * current one, so a trackpad cursor does not jump. A button the old recognizer holds goes up
-     * first: the new one would never let it go.
+     * over the frame's placement on the screen and the viewport; the cursor speed and the scroll
+     * settings go into the current one, so a trackpad cursor does not jump. A button the old
+     * recognizer holds goes up first: the new one would never let it go.
      */
     fun applySettings(s: Settings) {
         place()
         val modeChanged = s.touchMode != settings.touchMode
         settings = s
         if (!modeChanged) {
+            recognizer.cursorSpeed = s.cursorSpeed
             recognizer.scroll = s.touchScroll
             recognizer.inertia = s.scrollInertia
             placeStrip()

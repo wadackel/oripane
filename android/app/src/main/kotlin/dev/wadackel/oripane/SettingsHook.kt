@@ -17,16 +17,18 @@ object SettingsHook {
         val ignored: List<String>,
     )
 
+    private val speedSteps = (SpeedStep.MIN..SpeedStep.MAX).map { it.toString() }
+
     private val choices: Map<String, List<String>> = mapOf(
         SettingKeys.SCALE to Settings.scales.map { it.toString() },
         SettingKeys.FPS to Settings.fpsChoices.map { it.toString() },
         SettingKeys.DATA_SAVER to DataSaver.entries.map { it.key },
         SettingKeys.UI_SCALE to Settings.uiScales.map { it.toString() },
         SettingKeys.TOUCH_MODE to TouchMode.entries.map { it.key },
-        SettingKeys.CURSOR_SPEED to Speed.entries.map { it.key },
-        SettingKeys.TOUCH_SCROLL_SPEED to Speed.entries.map { it.key },
+        SettingKeys.CURSOR_SPEED to speedSteps,
+        SettingKeys.TOUCH_SCROLL_SPEED to speedSteps,
         SettingKeys.TOUCH_SCROLL_REVERSE to listOf("true", "false"),
-        SettingKeys.WHEEL_SCROLL_SPEED to Speed.entries.map { it.key },
+        SettingKeys.WHEEL_SCROLL_SPEED to speedSteps,
         SettingKeys.WHEEL_SCROLL_REVERSE to listOf("true", "false"),
         SettingKeys.SCROLL_STRIP to ScrollStrip.entries.map { it.key },
         SettingKeys.STRIP_HAPTICS to listOf("true", "false"),

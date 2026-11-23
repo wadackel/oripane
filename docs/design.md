@@ -29,12 +29,13 @@ them, round grey buttons, one subject per screen, no small capital labels, soft 
 | Top edge light of a raised surface | `highlight` | white 7 % |
 | Recessed track (segments, icon square on a card) | `well` | black 26 % |
 | Chosen segment's ground | `chosen` | white 10 % |
+| Slider track up to the thumb | `trackFill` | white 22 % |
 | Danger | `danger` | #FF7A70 |
 | Status: good, warning, unknown | `statusGood`, `statusWarn`, `statusUnknown` | #3DD68C, #F2B84B, #6E6F75 |
 
-- **White leads.** The one primary action, the chosen cell or tile, a switch that is on, and the
-  name of the chosen radial item are white (`lead`) with dark ink on them (`onLead`). Nothing else
-  is white-filled.
+- **White leads.** The one primary action, the chosen cell or tile, a switch that is on, a slider's
+  thumb, and the name of the chosen radial item are white (`lead`) with dark ink on them
+  (`onLead`). Nothing else is white-filled.
 - **Teal is the mark's.** The mark's three greens (Brand, below) appear only in the mark. Controls,
   selections and links never use them, and `Palette` has no brand colour for them to reach for.
 - **Colour means something or is not there.** No colour per function. Status colours appear only as
@@ -102,7 +103,8 @@ of the surface or to none.
 
 | Part | When | Examples |
 | --- | --- | --- |
-| Segments (`Choices`, `SegmentedChoices`) | 2–3 options, each a short word, compared at a glance. 44 dp, every option on screen. | Resolution, frame rate, data saver, display size, cursor speed, scroll speed and direction, band position |
+| Segments (`Choices`, `SegmentedChoices`) | 2–3 options, each a short word, compared at a glance. 44 dp, every option on screen. | Resolution, frame rate, data saver, display size, scroll direction, band position |
+| Speed slider (`SpeedRow`) | A speed, set by feel rather than by name. Nine steps the same factor apart; a grey round − and + one step either side, off at the ends; the speed as a multiple of the default (1×) at the label's end; a bar on the track at the default, in place of a reset button. Every change of step ticks. | Cursor speed, finger and wheel scroll speed |
 | Value row + sheet (`LinkRow` + `ChoiceSheet` / `DescribedChoiceSheet`) | 4 or more options, long names, or options that need a sentence each to tell apart. The row shows the current value; the sheet picks. | Touch mode, each gesture |
 | Switch (`SwitchRow`) | On or off only. At the row's end; white when on. | Show latency, band haptics, scroll inertia, incognito keyboard |
 | Link row (`LinkRow`) | Edited on a page of its own. Its state (a count) and a chevron at the end. | Direct gestures, trackpad gestures |
