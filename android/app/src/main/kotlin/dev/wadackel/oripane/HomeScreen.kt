@@ -130,14 +130,14 @@ enum class MacState(val color: StatusColor) {
     NEARBY(StatusColor.GREEN),
     /** Saved, not seen on this network: it may still be reached at an address it had or over Tailscale. */
     AWAY(StatusColor.GREY),
-    /** The last connection to it could not reach it. One the Mac refused keeps the state it had. */
+    /** The last connection to it could not reach it. Any other failure keeps the state it had. */
     UNREACHABLE(StatusColor.GREY),
     /** Found on this network and not paired yet. */
     NOT_ADDED(StatusColor.YELLOW),
 }
 
 fun macState(entry: HomeEntry, discovered: List<Discovered>, failure: HomeFailure?) = when {
-    failure?.key == entry.key && failure.reason == FailReason.CONNECT_FAILED -> MacState.UNREACHABLE
+    failure?.key == entry.key && (failure.reason == FailReason.CONNECT_FAILED || failure.reason == FailReason.GAVE_UP) -> MacState.UNREACHABLE
     entry is HomeEntry.Found -> MacState.NOT_ADDED
     discovered.any { it.id == (entry as HomeEntry.Saved).mac.hostId } -> MacState.NEARBY
     else -> MacState.AWAY

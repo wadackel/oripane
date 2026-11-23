@@ -185,6 +185,7 @@ class RoutesTest {
         assertThat(nextStep(FailReason.LIVENESS, authenticated = true)).isEqualTo(NextStep.RETRY_NOW)
         assertThat(nextStep(FailReason.IO, authenticated = true)).isEqualTo(NextStep.RETRY_NOW)
         assertThat(nextStep(FailReason.STREAM_FAILED, authenticated = true)).isEqualTo(NextStep.RETRY_LATER)
+        assertThat(nextStep(FailReason.GAVE_UP, authenticated = true)).isEqualTo(NextStep.STOP)
     }
 
     @Test

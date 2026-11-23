@@ -500,7 +500,10 @@ class ConnectionController(
         if (paused) return
         if (reconnectGaveUp(reconnectStartedMs, SystemClock.elapsedRealtime())) {
             log("reconnect gave_up attempts=$attempt")
-            finish(ClientState.Failed(FailReason.IO, "The Mac didn't come back."))
+            // Home calls GAVE_UP not reachable. A run whose last attempt failed on anything but a
+            // stream nearly always found no route that connects; one the Mac answered with a
+            // failed stream reached it.
+            finish(ClientState.Failed(if (reconnectNotice == null) FailReason.GAVE_UP else FailReason.IO, "The Mac didn't come back."))
             return
         }
         attempt++

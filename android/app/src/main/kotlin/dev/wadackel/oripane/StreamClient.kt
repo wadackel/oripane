@@ -264,8 +264,9 @@ class StreamClient(
             fail(FailReason.PAIR_DENIED, "The Mac declined the pairing.")
         } catch (e: Exception) {
             log("client error=${e.javaClass.simpleName}:${e.message}")
-            // A socket that fails during the handshake (the Wi-Fi gone while the code shows) is a
-            // lost connection like one after it; only a reply the handshake rejects is not.
+            // A socket that fails or closes during the handshake (the Wi-Fi gone while the code
+            // shows) is a lost connection like one after it, even when the Mac closed it to refuse
+            // us; only a reply the handshake cannot accept says authentication failed.
             if (authenticated || e is IOException) fail(FailReason.IO, "Lost the connection to the Mac.") else fail(FailReason.HANDSHAKE_FAILED, "Couldn't authenticate with the Mac.")
         }
     }

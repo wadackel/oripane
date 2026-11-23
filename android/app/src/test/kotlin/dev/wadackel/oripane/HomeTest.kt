@@ -86,9 +86,12 @@ class HomeTest {
     }
 
     @Test
-    fun aMacThatAnsweredAndRefusedKeepsItsStateRatherThanNotReachable() {
-        val refusals = FailReason.entries - FailReason.CONNECT_FAILED
-        refusals.forEach { reason ->
+    fun onlyAFailureToReachTheMacSaysNotReachableAndAnyOtherKeepsItsState() {
+        val unreached = listOf(FailReason.CONNECT_FAILED, FailReason.GAVE_UP)
+        unreached.forEach { reason ->
+            assertThat(macState(HomeEntry.Saved(mini), listOf(sameAsMini), HomeFailure(HomeEntry.Saved(mini).key, reason, "x"))).isEqualTo(MacState.UNREACHABLE)
+        }
+        (FailReason.entries - unreached).forEach { reason ->
             assertThat(macState(HomeEntry.Found(imac), listOf(imac), HomeFailure(HomeEntry.Found(imac).key, reason, "x"))).isEqualTo(MacState.NOT_ADDED)
             assertThat(macState(HomeEntry.Saved(mini), listOf(sameAsMini), HomeFailure(HomeEntry.Saved(mini).key, reason, "x"))).isEqualTo(MacState.NEARBY)
         }
