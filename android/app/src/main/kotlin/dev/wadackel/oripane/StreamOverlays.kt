@@ -118,7 +118,8 @@ internal fun lineFor(size: TextUnit) = size * 1.3f
  * The menu button, a 44 dp grey plate. A long press lifts it to follow the finger; on release it
  * snaps to the corner nearest its centre within a parent of [parentWidth] by [parentHeight] pixels.
  * While the key row is up ([keyBar], its height in pixels with the composition over it), a button in
- * a bottom corner sits above the row and the soft keyboard, so the menu stays in reach while typing.
+ * a bottom corner sits above the row and the soft keyboard, so the menu stays in reach while typing,
+ * and the corner is the nearest within the part of the parent above them.
  */
 @Composable
 fun MenuButton(
@@ -133,11 +134,11 @@ fun MenuButton(
     var drag by remember { mutableStateOf(Offset.Zero) }
     var origin by remember { mutableStateOf(Offset.Zero) }
     var sizePx by remember { mutableStateOf(0f) }
-    val bar = keyBar?.takeIf { !corner.top }
     val density = LocalDensity.current
-    // On release the halves are those of the screen above the keyboard and the row: against the
-    // whole screen, a raised button let go in place under a tall keyboard would snap to a top corner.
-    val lift by rememberUpdatedState(bar?.let { WindowInsets.ime.getBottom(density) + it } ?: 0)
+    // On release the halves are those of the screen above the keyboard and the row, from any corner:
+    // against the whole screen, a raised button let go in place under a tall keyboard would snap to a top corner.
+    val lift by rememberUpdatedState(keyBar?.let { WindowInsets.ime.getBottom(density) + it } ?: 0)
+    val bar = keyBar?.takeIf { !corner.top }
     val aboveKeyboard = if (bar != null) {
         Modifier.windowInsetsPadding(WindowInsets.ime).padding(bottom = with(density) { bar.toDp() })
     } else {
