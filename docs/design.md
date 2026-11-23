@@ -111,6 +111,8 @@ of the surface or to none.
 | Heading (`SectionLabel`) | Only when a page has two or more surfaces; 13 sp muted above the surface. A page with one surface has none. | Scrolling: Finger, Wheel, Bands |
 
 - A section with fewer than two settings is not made: its setting joins the nearest section.
+- A surface of one value row takes no heading even among surfaces that have one, since the row's
+  label already names it and a heading would say the word twice (Key on the custom shortcut page).
 - In the stream's menu sheet, where a second sheet cannot open over the first, a setting that would
   take a value row and a sheet takes segments with a note instead (Touch mode in Live settings).
 
