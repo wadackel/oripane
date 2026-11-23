@@ -38,7 +38,7 @@ tools/host pairings             # the paired phones
 ```
 
 - The terminal it runs in needs the Screen Recording and Accessibility permissions. Without Accessibility, input is only logged and never reaches the Mac.
-- When a new phone connects, the terminal prints `Pairing request: the phone must show 123456`, the requesting phone's name, where the request came from (this Mac, an address on the LAN or on Tailscale) and `Pair? [y/N]`. Answer `y` if the code matches the one on the phone. A request that comes meanwhile waits its turn, an answer typed within a second of its question is asked again, and an address answered with anything but `y` is refused for 30 seconds.
+- When a new phone connects, the terminal prints `Pairing request: the phone must show 123456`, the requesting phone's name, where the request came from (this Mac, an address on the LAN or on Tailscale) and `Pair? [y/N]`. Answer `y` if the code matches the one on the phone. A request that comes meanwhile waits its turn, and an address answered with anything but `y` is refused for 30 seconds. An answer typed within a second of its question is asked again. When the phone whose question is on screen cancels its request, the next line typed is not taken as an answer either: when it reaches the question shown after that one, the terminal says so and asks again.
 - `--source test` streams a synthetic pattern instead of the screen. `--drop 0.05` drops 5% of outgoing packets, to watch FEC and keyframe requests at work. `tools/host --help` lists every option and the environment variables for testing.
 - When done, open the app again with `tools/app open`.
 

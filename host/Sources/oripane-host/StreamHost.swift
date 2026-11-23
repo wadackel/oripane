@@ -225,6 +225,7 @@ final class StreamHost: Approver {
         guard let (token, a) = asks.shown else { return }
         guard generation == askGeneration else {
             log("pairing answer_ignored reason=stale")
+            print("\nThat answer reached the question the phone cancelled; answer again.")
             showQuestion()
             return
         }
