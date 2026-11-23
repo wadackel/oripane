@@ -97,9 +97,16 @@ class PagesScreenshotTest(private val size: FoldSize) {
 
     @Test
     fun homeAfterAMacCouldNotBeReached() {
-        val failure = HomeFailure(HomeEntry.Saved(mbp2).key, "Couldn't reach MacBook Pro. Wake it, or check that Oripane is running on it.")
+        val failure = HomeFailure(HomeEntry.Saved(mbp2).key, FailReason.CONNECT_FAILED, "Couldn't reach MacBook Pro. Wake it, or check that Oripane is running on it.")
         compose.setContent { PageFrame { home(listOf(studio, mbp, mbp2), listOf(iMac), selected = HomeEntry.Saved(mbp2).key, failure = failure) } }
         shot("home_error")
+    }
+
+    @Test
+    fun homeAfterAFoundMacDeclinedThePairing() {
+        val failure = HomeFailure(HomeEntry.Found(iMac).key, FailReason.PAIR_DENIED, "The Mac declined the pairing.")
+        compose.setContent { PageFrame { home(listOf(studio, mbp, mbp2), listOf(iMac), selected = HomeEntry.Found(iMac).key, failure = failure) } }
+        shot("home_declined")
     }
 
     @Test

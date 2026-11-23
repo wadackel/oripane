@@ -266,7 +266,7 @@ class ConnectionController(
         repairOf = null
         val routes = routeCandidates(wifi, discovered, mac)
         if (routes.isEmpty()) {
-            attemptFailed(ClientState.Failed(FailReason.CONNECT_FAILED, "No route to ${mac.displayName}."))
+            attemptFailed(ClientState.Failed.naming(FailReason.CONNECT_FAILED, mac.displayName) { "No route to $it." })
             return
         }
         val r = RouteRace(routes, SystemClock.elapsedRealtime())
@@ -319,7 +319,7 @@ class ConnectionController(
             }
             RouteDecision.NoRoute -> {
                 endRace()
-                attemptFailed(ClientState.Failed(FailReason.CONNECT_FAILED, "Couldn't reach ${mac.displayName}."))
+                attemptFailed(ClientState.Failed.naming(FailReason.CONNECT_FAILED, mac.displayName) { "Couldn't reach $it." })
             }
         }
     }
@@ -464,7 +464,7 @@ class ConnectionController(
     private fun attemptFailed(state: ClientState.Failed) {
         dropClient()
         if (!authenticated) {
-            finish(ClientState.Failed(FailReason.CONNECT_FAILED, state.message))
+            finish(state.copy(reason = FailReason.CONNECT_FAILED))
             return
         }
         val notice = state.message.takeIf { state.reason == FailReason.STREAM_FAILED }
