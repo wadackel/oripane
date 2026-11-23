@@ -90,24 +90,16 @@ fun RadialShortcutScreen(initial: RadialEntry.Custom?, edit: Boolean, onSave: (R
                 }
             }
         }
-        SectionLabel("Key")
-        Card {
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = Sizes.rowMin).clickable { choosingKey = true }.padding(horizontal = Space.m),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(code?.let { radialKey(it)?.spoken } ?: "Choose a key", style = Type.label, color = Palette.text, modifier = Modifier.weight(1f))
-                code?.let { radialKey(it) }?.let { Text(it.label, style = Type.value, color = Palette.textMuted, modifier = Modifier.padding(end = 14.dp)) }
-                Chevron()
-            }
-        }
+        // A value row names itself, so a "Key" heading above it would say the word twice.
+        Spacer(Modifier.height(Space.m))
+        SettingsCard(listOf { p -> LinkRow("Key", p, value = code?.let { radialKey(it)?.spoken } ?: "None") { choosingKey = true } })
         SectionLabel("Name")
         OutlinedTextField(
             value = name,
             onValueChange = { name = RadialMenuJson.clip(it) },
             placeholder = { Text(entry?.combo ?: "Optional") },
             singleLine = true,
-            supportingText = { Text("${name.length} / ${RadialMenuJson.NAME_MAX}") },
+            supportingText = { Text("${RadialMenuJson.length(name)} / ${RadialMenuJson.NAME_MAX}") },
             shape = RoundedCornerShape(Radius.inner),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -128,7 +120,7 @@ fun RadialShortcutScreen(initial: RadialEntry.Custom?, edit: Boolean, onSave: (R
                             .selectable(selected = on, role = Role.RadioButton) { look = RadialLook.Icon(icon) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(painterResource(icon.res), contentDescription = RadialItem.of(icon.id)?.label ?: icon.id.replaceFirstChar { it.uppercase() }, tint = if (on) Palette.onLead else Palette.icon, modifier = Modifier.size(20.dp))
+                        Icon(painterResource(icon.res), contentDescription = "${RadialItem.of(icon.id)?.label ?: icon.id.replaceFirstChar { it.uppercase() }} icon", tint = if (on) Palette.onLead else Palette.icon, modifier = Modifier.size(20.dp))
                     }
                 }
             }

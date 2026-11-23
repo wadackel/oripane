@@ -429,9 +429,21 @@ class SettingsTest {
     }
 
     @Test
-    fun aNameCutAtTwentyFourEndsWithoutASpaceOrHalfACharacter() {
+    fun aNameCutAtTwentyFourEndsWithoutASpace() {
         assertThat(RadialMenuJson.name("${"a".repeat(23)} b")).isEqualTo("a".repeat(23))
-        assertThat(RadialMenuJson.clip("${"a".repeat(23)}😀")).isEqualTo("a".repeat(23))
+    }
+
+    @Test
+    fun aNameCountsCharactersAsAPersonSeesThemAndNeverCutsOneInHalf() {
+        val family = "👨‍👩‍👧"
+        val thumb = "👍🏽"
+        assertThat(RadialMenuJson.length(family)).isEqualTo(1)
+        assertThat(RadialMenuJson.length(thumb)).isEqualTo(1)
+        assertThat(RadialMenuJson.length("é")).isEqualTo(1)
+        assertThat(RadialMenuJson.clip("😀".repeat(25))).isEqualTo("😀".repeat(24))
+        assertThat(RadialMenuJson.clip("${"a".repeat(23)}${family}b")).isEqualTo("${"a".repeat(23)}$family")
+        assertThat(RadialMenuJson.clip("${"a".repeat(23)}$thumb")).isEqualTo("${"a".repeat(23)}$thumb")
+        assertThat(RadialMenuJson.name(" ${"😀".repeat(30)} ")).isEqualTo("😀".repeat(24))
     }
 
     @Test

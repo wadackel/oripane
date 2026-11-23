@@ -1,5 +1,6 @@
 package dev.wadackel.oripane
 
+import android.icu.text.BreakIterator
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -350,8 +351,21 @@ object RadialMenuJson {
     /** A name as entered: trimmed, null when empty, at most [NAME_MAX] characters. */
     fun name(raw: String?) = raw?.trim()?.let(::clip)?.trimEnd()?.ifEmpty { null }
 
-    /** At most [NAME_MAX] characters, never half of a character made of two. */
-    fun clip(s: String) = s.take(NAME_MAX).let { if (it.isNotEmpty() && it.last().isHighSurrogate()) it.dropLast(1) else it }
+    /** At most [NAME_MAX] characters, never part of one. */
+    fun clip(s: String) = characterEnds(s).getOrNull(NAME_MAX - 1)?.let { s.substring(0, it) } ?: s
+
+    /** How many characters [s] holds as a person counts them, as [NAME_MAX] limits them. */
+    fun length(s: String) = characterEnds(s).size
+
+    /**
+     * Where each character of [s] ends. A character is a grapheme cluster rather than a `Char` or a
+     * code point: an emoji with a skin tone, or a family joined by zero-width joiners, is one.
+     * android.icu's iterator rather than java.text's, which on the tests' JDK splits those.
+     */
+    private fun characterEnds(s: String): List<Int> {
+        val it = BreakIterator.getCharacterInstance().apply { setText(s) }
+        return generateSequence { it.next().takeIf { end -> end != BreakIterator.DONE } }.toList()
+    }
 
     /** The `settings` log's form, one part per cell and an empty part for an empty cell: `copy+++paste++++custom`. */
     fun describe(entries: List<RadialEntry?>) = entries.joinToString("+") { e ->
