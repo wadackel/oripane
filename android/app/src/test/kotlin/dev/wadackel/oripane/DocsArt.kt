@@ -27,11 +27,10 @@ import androidx.core.graphics.PathParser
  * geometry is in units of a 1000 × 470 drawing.
  */
 internal object DocsArt {
-    /** The ink and fills of one GitHub theme; [page] fills the windows so they hide what is behind. */
+    /** The ink and fills of the drawing; [page] fills the windows so they hide what is behind. */
     data class Theme(val ink: Int, val page: Int, val accent: Int)
 
     val light = Theme(ink = 0xFF24292F.toInt(), page = 0xFFFFFFFF.toInt(), accent = 0xFF07B086.toInt())
-    val dark = Theme(ink = 0xFFD1D9E0.toInt(), page = 0xFF0D1117.toInt(), accent = 0xFF18E2B0.toInt())
 
     private const val W = 1000f
     private const val H = 470f
@@ -51,13 +50,18 @@ internal object DocsArt {
     /** Grey nudged 11 % toward the mark's green, so the desktop belongs to the app without turning teal. */
     private val wallpaper = intArrayOf(mix(0xFF8C959F.toInt(), 0xFF18E2B0.toInt(), 0.11f), mix(0xFF6E7781.toInt(), 0xFF18E2B0.toInt(), 0.11f))
 
-    /** The drawing alone, on a transparent ground, [width] pixels wide. */
-    fun hero(theme: Theme, width: Int = 1600): Bitmap {
+    /**
+     * The drawing alone, on white, [width] pixels wide. The ground is opaque rather than
+     * transparent so one image reads on GitHub's dark theme too: the README cannot tell which
+     * theme the reader chose on GitHub, only the device's colour scheme.
+     */
+    fun hero(width: Int = 1600): Bitmap {
         val scale = width / W
         val out = Bitmap.createBitmap(width, Math.round(H * scale), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
+        canvas.drawColor(light.page)
         canvas.scale(scale, scale)
-        draw(canvas, theme)
+        draw(canvas, light)
         return out
     }
 
