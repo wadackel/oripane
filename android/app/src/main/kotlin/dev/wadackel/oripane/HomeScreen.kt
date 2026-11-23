@@ -382,10 +382,11 @@ private fun DrawScope.modeArt(mode: String, ink: Color) {
 }
 
 /**
- * Every Mac as a tile, two to a row on the cover screen and three on the inner one, so a name of
- * some length fits beside its dot: its icon, then its state's dot before its name. The chosen
- * one has a white ring; one that could not be reached is faded. A tap picks the card's Mac, a long
- * press on a saved one opens its details. The last tile adds a Mac.
+ * Every Mac as a tile, two to a row on both screens: three on the inner screen, beside the card,
+ * cut a name of ordinary length such as "Margaret’s Mac Mini". A tile shows its icon, then its
+ * state's dot before its name. The chosen one has a white ring; one that could not be reached is
+ * faded. A tap picks the card's Mac, a long press on a saved one opens its details. The last tile
+ * adds a Mac.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -438,11 +439,10 @@ private fun MacTiles(
         }
     })
     Column(modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-        val columns = if (wide) 3 else 2
-        cells.chunked(columns).forEach { row ->
+        cells.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
                 row.forEach { it(Modifier.weight(1f)) }
-                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

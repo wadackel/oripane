@@ -131,9 +131,9 @@ editor are pages.
 
 ### Home
 
-- **Structure:** a large card for the chosen Mac, then a tile for every Mac: two to a row on the
-  cover screen, so a name has room beside its dot, and three on the inner screen, where the card
-  sits on the left (380 dp) and the tiles to its right. No heading above the tiles.
+- **Structure:** a large card for the chosen Mac, then a tile for every Mac, two to a row on both
+  screens so a name has room beside its dot; on the inner screen the card sits on the left
+  (380 dp) and the tiles to its right. No heading above the tiles.
   The header holds the mark and the wordmark, then Add a Mac and Settings as round grey buttons.
 - **Card:** the Mac's kind icon in a 44 dp square, its name (22) and its state (a dot and 12 sp
   words), a details button; then the display mode (three segments with a small drawing and the
