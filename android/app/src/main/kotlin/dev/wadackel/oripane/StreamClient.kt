@@ -19,6 +19,7 @@ import dev.wadackel.oripane.protocol.VideoParity
 import dev.wadackel.oripane.protocol.X25519KeyPair
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
@@ -71,7 +72,16 @@ sealed interface ClientState {
      * [message] says why, when the Mac told us; a dropped route has nothing to add.
      */
     data class Reconnecting(val last: Streaming, val message: String? = null, val attempt: Int = 0, val route: String? = null) : ClientState
-    data class Failed(val reason: FailReason, val message: String) : ClientState
+    /**
+     * [message] says why, as shown. [naming] builds it again for another name of the Mac it names,
+     * since a rename can come while the failure is still on screen; null when it names no Mac.
+     */
+    data class Failed(val reason: FailReason, val message: String, val naming: ((String) -> String)? = null) : ClientState {
+        companion object {
+            /** A failure whose words name the Mac: [text] takes the name, [name] is the one of now. */
+            fun naming(reason: FailReason, name: String, text: (String) -> String) = Failed(reason, text(name), text)
+        }
+    }
     data object Closed : ClientState
 }
 
@@ -254,7 +264,10 @@ class StreamClient(
             fail(FailReason.PAIR_DENIED, "The Mac declined the pairing.")
         } catch (e: Exception) {
             log("client error=${e.javaClass.simpleName}:${e.message}")
-            if (authenticated) fail(FailReason.IO, "Lost the connection to the Mac.") else fail(FailReason.HANDSHAKE_FAILED, "Couldn't authenticate with the Mac.")
+            // A socket that fails or closes during the handshake (the Wi-Fi gone while the code
+            // shows) is a lost connection like one after it, even when the Mac closed it to refuse
+            // us; only a reply the handshake cannot accept says authentication failed.
+            if (authenticated || e is IOException) fail(FailReason.IO, "Lost the connection to the Mac.") else fail(FailReason.HANDSHAKE_FAILED, "Couldn't authenticate with the Mac.")
         }
     }
 

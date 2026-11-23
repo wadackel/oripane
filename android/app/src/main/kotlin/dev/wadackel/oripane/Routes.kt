@@ -228,7 +228,12 @@ const val BACKGROUND_CLOSE_MS = 60_000L
 
 fun reconnectGaveUp(startedMs: Long, nowMs: Long) = startedMs > 0 && nowMs - startedMs > RECONNECT_LIMIT_MS
 
-enum class FailReason { CONNECT_FAILED, HANDSHAKE_FAILED, AUTH_UNKNOWN, PAIR_DENIED, REPLACED, LIVENESS, IO, STREAM_FAILED }
+/**
+ * Why a connection failed. [GAVE_UP] comes from no client: the reconnect attempts ran out without
+ * the Mac coming back. Unlike [CONNECT_FAILED] it does not send a connection typed into Add a Mac
+ * back to its field, since that address did connect once.
+ */
+enum class FailReason { CONNECT_FAILED, HANDSHAKE_FAILED, AUTH_UNKNOWN, PAIR_DENIED, REPLACED, LIVENESS, IO, STREAM_FAILED, GAVE_UP }
 
 enum class NextStep {
     /** Try the next route candidate; with none left, wait for the next attempt (or give up). */
@@ -245,7 +250,7 @@ enum class NextStep {
  */
 fun nextStep(reason: FailReason, authenticated: Boolean): NextStep = when (reason) {
     FailReason.CONNECT_FAILED -> NextStep.NEXT_CANDIDATE
-    FailReason.AUTH_UNKNOWN, FailReason.PAIR_DENIED, FailReason.REPLACED -> NextStep.STOP
+    FailReason.AUTH_UNKNOWN, FailReason.PAIR_DENIED, FailReason.REPLACED, FailReason.GAVE_UP -> NextStep.STOP
     // The Mac could not keep the video going: while it keeps failing, the waits between attempts grow.
     FailReason.HANDSHAKE_FAILED, FailReason.STREAM_FAILED -> if (authenticated) NextStep.RETRY_LATER else NextStep.STOP
     FailReason.LIVENESS, FailReason.IO -> if (authenticated) NextStep.RETRY_NOW else NextStep.STOP

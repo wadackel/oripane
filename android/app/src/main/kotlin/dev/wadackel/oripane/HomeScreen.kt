@@ -74,8 +74,14 @@ sealed interface HomeEntry {
     }
 }
 
-/** A connection to [key]'s Mac that failed, and what the failure said. */
-data class HomeFailure(val key: String, val message: String)
+/**
+ * A connection to [key]'s Mac that failed, why, and what the failure said. [naming], from
+ * [ClientState.Failed], says it again with the Mac's name of now.
+ */
+data class HomeFailure(val key: String, val reason: FailReason, val message: String, val naming: ((String) -> String)? = null) {
+    /** What the card of the Mac called [name] says about this failure. */
+    fun messageFor(name: String) = naming?.invoke(name) ?: message
+}
 
 /** A service whose TXT id matches a saved Mac is that Mac, reached through its own entry. */
 private fun unsavedFound(saved: List<SavedMac>, discovered: List<Discovered>) = discovered.filter { d -> saved.none { it.hostId == d.id } }
@@ -124,14 +130,14 @@ enum class MacState(val color: StatusColor) {
     NEARBY(StatusColor.GREEN),
     /** Saved, not seen on this network: it may still be reached at an address it had or over Tailscale. */
     AWAY(StatusColor.GREY),
-    /** The last connection to it failed. */
+    /** The last connection to it could not reach it. Any other failure keeps the state it had. */
     UNREACHABLE(StatusColor.GREY),
     /** Found on this network and not paired yet. */
     NOT_ADDED(StatusColor.YELLOW),
 }
 
 fun macState(entry: HomeEntry, discovered: List<Discovered>, failure: HomeFailure?) = when {
-    failure?.key == entry.key -> MacState.UNREACHABLE
+    failure?.key == entry.key && (failure.reason == FailReason.CONNECT_FAILED || failure.reason == FailReason.GAVE_UP) -> MacState.UNREACHABLE
     entry is HomeEntry.Found -> MacState.NOT_ADDED
     discovered.any { it.id == (entry as HomeEntry.Saved).mac.hostId } -> MacState.NEARBY
     else -> MacState.AWAY
@@ -187,7 +193,8 @@ fun HomeScreen(
                 return@Column
             }
             val board = @Composable { m: Modifier ->
-                MacCard(chosen, macState(chosen, discovered, failure), macStateText(chosen, macState(chosen, discovered, failure), repeated), failure?.message, mode, onMode, onConnect, onDetail, m)
+                val state = macState(chosen, discovered, failure)
+                MacCard(chosen, state, macStateText(chosen, state, repeated), failure?.takeIf { it.key == chosen.key }?.messageFor(chosen.name), mode, onMode, onConnect, onDetail, m)
             }
             val tiles = @Composable { m: Modifier ->
                 MacTiles(entries, chosen, discovered, failure, wide, onSelect, onDetail, onAdd, m)
@@ -220,8 +227,8 @@ private fun HomeHeader(onAdd: () -> Unit, onSettings: () -> Unit, modifier: Modi
 /**
  * The chosen Mac's card. Its ground takes the colour of the last frame seen from this Mac, washed in
  * from the corner; a Mac never streamed from stays grey. Under the name: the display mode and the
- * white round Connect, or, for a Mac that could not be reached, why and a quiet Try again, or, for
- * one not paired yet, what pairing does and a white round Pair.
+ * white round Connect, or, after a connection to it failed ([failure]), why and a quiet Try again,
+ * or, for one not paired yet, what pairing does and a white round Pair.
  */
 @Composable
 private fun MacCard(
@@ -254,12 +261,12 @@ private fun MacCard(
             if (entry is HomeEntry.Saved) RoundButton(R.drawable.ic_more, "Details", background = Palette.well) { onDetail(entry.mac) }
         }
         Row(Modifier.padding(top = Space.m), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-            when (state) {
-                MacState.UNREACHABLE -> {
-                    CardNote(failure ?: "", Modifier.weight(1f))
+            when {
+                failure != null -> {
+                    CardNote(failure, Modifier.weight(1f))
                     RoundButton(R.drawable.ic_retry, "Try again", primary = true, background = Palette.surface3, tint = Palette.text) { onConnect(entry) }
                 }
-                MacState.NOT_ADDED -> {
+                state == MacState.NOT_ADDED -> {
                     CardNote("Found on this Wi-Fi. Pairing shows the same code on both screens.", Modifier.weight(1f))
                     RoundButton(R.drawable.ic_plus, "Pair", primary = true) { onConnect(entry) }
                 }

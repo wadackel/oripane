@@ -262,7 +262,7 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
     override fun onState(state: ClientState) {
         if (state is ClientState.Failed || state == ClientState.Closed) keepTint()
         this.state = state
-        if (state is ClientState.Failed && !(connectFromAdd && state.reason == FailReason.CONNECT_FAILED)) homeFailure = HomeFailure(homeAttempt ?: "", state.message)
+        if (state is ClientState.Failed && !(connectFromAdd && state.reason == FailReason.CONNECT_FAILED)) homeFailure = HomeFailure(homeAttempt ?: "", state.reason, state.message, state.naming)
         if (state is ClientState.Streaming) homeFailure = null
         if (state is ClientState.Failed || state == ClientState.Closed) {
             // A typed address that could not be reached goes back to the field, to be corrected there.
@@ -522,6 +522,8 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
                             onRename = { name -> updateSaved { all -> all.map { if (it.hostId == mac.hostId) it.copy(customName = name) else it } } },
                             onDelete = {
                                 updateSaved { all -> all.filter { it.hostId != mac.hostId } }
+                                // Not listed any more, its failure would move above the next Mac's card.
+                                if (homeFailure?.key == HomeEntry.Saved(mac).key) homeFailure = null
                                 screen = Screen.Connections
                             },
                             onBack = { screen = Screen.Connections },
