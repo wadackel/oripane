@@ -137,7 +137,8 @@ editor are pages.
   The header holds the mark and the wordmark, then Add a Mac and Settings as round grey buttons.
 - **Card:** the Mac's kind icon in a 44 dp square, its name (22) and its state (a dot and 12 sp
   words), a details button; then the display mode (three segments with a small drawing and the
-  mode's name, 44 dp) and the white round Connect with the arrow-into-a-frame icon.
+  mode's name, 44 dp at the default sizes; taller or stacked at large ones, as Buttons and
+  controls says) and the white round Connect with the arrow-into-a-frame icon.
 - **The card's colour:** the colour of the last frame seen from that Mac, kept on the phone when a
   session ends (`SavedMac.tint`), washed in from the card's top-left corner. A Mac never streamed
   from, or whose last frame had no colour to speak of, stays grey.

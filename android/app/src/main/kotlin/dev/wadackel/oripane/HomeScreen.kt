@@ -61,6 +61,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
+import kotlin.math.sign
 
 /** One Mac on the home screen: a saved Mac or one found nearby. */
 sealed interface HomeEntry {
@@ -329,10 +331,11 @@ private fun DisplayModeControl(mode: String, onMode: (String) -> Unit, modifier:
         val widest = segments.maxOf { it.maxIntrinsicWidth(Constraints.Infinity) }
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else widest * segments.size + gaps
         if (widest * segments.size + gaps <= width) {
-            // Shares out the spare pixels as Row's weights do, so the default sizes draw as before.
-            val share = (width - gaps) / segments.size
-            val spare = width - gaps - share * segments.size
-            val widths = segments.indices.map { share + if (it < spare) 1 else 0 }
+            // Rounds each share and settles the difference from the first segment on, as Row's
+            // weights do, so the default sizes draw to the pixel as they did in a Row.
+            val share = ((width - gaps) / segments.size.toFloat()).roundToInt()
+            var rest = width - gaps - share * segments.size
+            val widths = segments.map { share + rest.sign.also { rest -= it } }
             val height = maxOf(least, segments.indices.maxOf { segments[it].minIntrinsicHeight(widths[it]) })
             val placed = segments.indices.map { segments[it].measure(Constraints.fixed(widths[it], height)) }
             layout(width, height) {
