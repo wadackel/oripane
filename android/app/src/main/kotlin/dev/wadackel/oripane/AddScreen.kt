@@ -29,16 +29,28 @@ fun normalizeHost(input: String): String = Normalizer.normalize(input, Normalize
 
 private val portSuffix = Regex(""":\d+$""")
 
-/** The address field takes no port: a host listens on 47800, and only a test launch hook moves it. */
-fun hasPort(host: String) = portSuffix.containsMatchIn(host)
+/** An IPv6 literal: bracketed, or hex groups with at least two colons and an optional `%` zone. */
+private val ipv6Literal = Regex("""^\[.*|^[0-9A-Fa-f.]*:[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*(%\S*)?$""")
+
+/**
+ * Why [host], a normalized field, cannot be connected to as typed, or null. The field takes no port:
+ * a host listens on 47800, and only a test launch hook moves it. An IPv6 address is told apart
+ * first, since its last group would read as a port, and the phone connects over IPv4 only
+ * (`ConnectionController.resolve`).
+ */
+fun addressProblem(host: String): String? = when {
+    ipv6Literal.matches(host) -> "Oripane connects over IPv4; enter an IPv4 address or a name."
+    portSuffix.containsMatchIn(host) -> "Leave out the port; Oripane uses 47800."
+    else -> null
+}
 
 @Composable
 fun AddScreen(initial: String, mode: String, error: String?, onChange: (String) -> Unit, onConnect: (host: String, mode: String) -> Unit, onBack: () -> Unit) {
     var host by remember { mutableStateOf(initial) }
     var picked by remember { mutableStateOf(mode) }
-    val portGiven = hasPort(normalizeHost(host))
-    val canConnect = normalizeHost(host).isNotEmpty() && !portGiven
-    val problem = if (portGiven) "Leave out the port; Oripane uses 47800." else error
+    val refused = addressProblem(normalizeHost(host))
+    val canConnect = normalizeHost(host).isNotEmpty() && refused == null
+    val problem = refused ?: error
     Page("Add a Mac", onBack) {
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(

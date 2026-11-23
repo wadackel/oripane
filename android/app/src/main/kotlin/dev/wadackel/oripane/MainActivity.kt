@@ -98,8 +98,17 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
     private var menuCorner by mutableStateOf(MenuCorner.BOTTOM_END)
     private var macToast: Toast? = null
     private val discovered = mutableStateListOf<Discovered>()
-    private var screen by mutableStateOf<Screen>(Screen.Connections)
-    /** Why the last connection started from Add a Mac failed; shown under its field. */
+    private var shownScreen by mutableStateOf<Screen>(Screen.Connections)
+
+    /** The page shown while not connected. Leaving Add a Mac, by any way back, drops [addError]. */
+    private var screen: Screen
+        get() = shownScreen
+        set(value) {
+            if (value != Screen.Add) addError = null
+            shownScreen = value
+        }
+
+    /** Why the last connection started from Add a Mac failed; shown under its field until the page is left. */
     private var addError by mutableStateOf<String?>(null)
     private var connectFromAdd = false
     private var savedMacs by mutableStateOf(emptyList<SavedMac>())
