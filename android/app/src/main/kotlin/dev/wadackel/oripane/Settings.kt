@@ -1,6 +1,7 @@
 package dev.wadackel.oripane
 
 import android.icu.text.BreakIterator
+import kotlin.math.pow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -11,10 +12,44 @@ enum class TouchMode(val key: String) {
     TRACKPAD("trackpad"),
 }
 
-enum class Speed(val key: String, val scroll: Float, val cursor: Float) {
-    SLOW("slow", 0.5f, 0.8f),
-    NORMAL("normal", 1.0f, 1.2f),
-    FAST("fast", 2.0f, 1.8f),
+/**
+ * A speed's step on its slider, [MIN] to [MAX] with [DEFAULT] in the middle. Each step multiplies
+ * the speed by the same factor, so a step feels the same size anywhere on the scale; the three
+ * choices this replaced, Slow, Normal and Fast, fall on steps 3, 5 and 7 with their old speeds.
+ */
+@JvmInline
+value class SpeedStep(val step: Int) {
+    init {
+        require(step in MIN..MAX) { "speed step $step" }
+    }
+
+    /** Finger and wheel scroll against the default: ×√2 a step, a quarter to four times. */
+    val scrollFactor get() = 2.0.pow((step - DEFAULT) / 2.0)
+
+    /** The trackpad cursor against the default: ×√1.5 a step, so steps 3 and 7 keep Slow's 0.8 and Fast's 1.8. */
+    val cursorFactor get() = 1.5.pow((step - DEFAULT) / 2.0)
+
+    val scroll get() = scrollFactor.toFloat()
+
+    /** The cursor's gain before its acceleration. */
+    val cursor get() = (CURSOR_DEFAULT * cursorFactor).toFloat()
+
+    operator fun plus(n: Int) = SpeedStep((step + n).coerceIn(MIN, MAX))
+
+    operator fun minus(n: Int) = plus(-n)
+
+    companion object {
+        const val MIN = 1
+        const val MAX = 9
+        const val DEFAULT = 5
+        private const val CURSOR_DEFAULT = 1.2
+        val default = SpeedStep(DEFAULT)
+
+        /** The stored step, or the choice it was stored as before the slider; null for anything else. */
+        fun of(stored: String?): SpeedStep? = stored?.toIntOrNull()?.takeIf { it in MIN..MAX }?.let(::SpeedStep) ?: before[stored]
+
+        private val before = mapOf("slow" to SpeedStep(3), "normal" to SpeedStep(5), "fast" to SpeedStep(7))
+    }
 }
 
 /**
@@ -149,7 +184,7 @@ enum class BandSize(val key: String) {
     MEDIUM("medium"),
 }
 
-data class ScrollSetting(val speed: Speed = Speed.NORMAL, val reverse: Boolean = false) {
+data class ScrollSetting(val speed: SpeedStep = SpeedStep.default, val reverse: Boolean = false) {
     fun apply(v: Float) = v * speed.scroll * if (reverse) -1 else 1
 }
 
@@ -163,7 +198,7 @@ data class Settings(
     val mapTrackpad: TouchMap = TouchMap.defaults(TouchMode.TRACKPAD),
     /** The radial menu, one entry or null per cell, clockwise from the top; both touch modes share it. */
     val radialMenu: List<RadialEntry?> = RadialEntry.defaults,
-    val cursorSpeed: Speed = Speed.NORMAL,
+    val cursorSpeed: SpeedStep = SpeedStep.default,
     val touchScroll: ScrollSetting = ScrollSetting(),
     val wheelScroll: ScrollSetting = ScrollSetting(),
     /** Trackpad mode only: a band down one side and one along the bottom that scroll under one finger. */
@@ -245,10 +280,10 @@ object SettingKeys {
         MAP_DIRECT to s.mapDirect.toJson(),
         MAP_TRACKPAD to s.mapTrackpad.toJson(),
         RADIAL_MENU to RadialMenuJson.encode(s.radialMenu),
-        CURSOR_SPEED to s.cursorSpeed.key,
-        TOUCH_SCROLL_SPEED to s.touchScroll.speed.key,
+        CURSOR_SPEED to s.cursorSpeed.step.toString(),
+        TOUCH_SCROLL_SPEED to s.touchScroll.speed.step.toString(),
         TOUCH_SCROLL_REVERSE to s.touchScroll.reverse.toString(),
-        WHEEL_SCROLL_SPEED to s.wheelScroll.speed.key,
+        WHEEL_SCROLL_SPEED to s.wheelScroll.speed.step.toString(),
         WHEEL_SCROLL_REVERSE to s.wheelScroll.reverse.toString(),
         SCROLL_STRIP to s.scrollStrip.key,
         STRIP_KNOB to s.stripKnobAt.toString(),
@@ -263,7 +298,7 @@ object SettingKeys {
     fun read(get: (String) -> String?, showStats: Boolean): Settings {
         val d = Settings.defaults
         val mode = TouchMode.entries.firstOrNull { it.key == get(TOUCH_MODE) } ?: d.touchMode
-        fun speed(key: String) = Speed.entries.firstOrNull { it.key == get(key) } ?: Speed.NORMAL
+        fun speed(key: String) = SpeedStep.of(get(key)) ?: SpeedStep.default
         fun bool(key: String) = get(key) == "true"
         // For a switch that starts on: only a stored "false" turns it off.
         fun boolOn(key: String) = get(key) != "false"

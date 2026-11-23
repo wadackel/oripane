@@ -147,11 +147,31 @@ class TouchInputTest {
     @Test
     fun aScrollChangeKeepsTheTrackpadCursorWhereItIs() {
         input.applySettings(Settings(touchMode = TouchMode.TRACKPAD))
-        input.applySettings(Settings(touchMode = TouchMode.TRACKPAD, touchScroll = ScrollSetting(Speed.FAST, reverse = true)))
+        input.applySettings(Settings(touchMode = TouchMode.TRACKPAD, touchScroll = ScrollSetting(SpeedStep(7), reverse = true)))
         assertThat(pointers(PointerAction.Move)).hasSize(1)
         touch(MotionEvent.ACTION_DOWN, 0, 900f to 1900f)
         touch(MotionEvent.ACTION_UP, 60, 900f to 1900f)
         assertThat(pointers(PointerAction.Down).single()).isEqualTo(InputEvent.Pointer(PointerAction.Down, 0.5f, 0.5f))
+    }
+
+    /** The cursor's travel on the last move of a one-finger drag from the middle, starting at [at]. */
+    private fun dragTravel(at: Long): Float {
+        touch(MotionEvent.ACTION_DOWN, at, 500f to 1000f)
+        touch(MotionEvent.ACTION_MOVE, at + 50, 520f to 1000f)
+        touch(MotionEvent.ACTION_MOVE, at + 100, 560f to 1000f)
+        touch(MotionEvent.ACTION_UP, at + 150, 560f to 1000f)
+        val moves = pointers(PointerAction.Move)
+        return moves.last().x - moves[moves.size - 2].x
+    }
+
+    @Test
+    fun aCursorSpeedChangeWhileConnectedTakesEffectOnTheNextDrag() {
+        input.applySettings(Settings(touchMode = TouchMode.TRACKPAD))
+        val before = dragTravel(0)
+        input.applySettings(Settings(touchMode = TouchMode.TRACKPAD, cursorSpeed = SpeedStep(SpeedStep.MAX)))
+        val after = dragTravel(2000)
+        assertThat(before).isGreaterThan(0f)
+        assertThat(after).isWithin(1e-4f).of(before * 2.25f)
     }
 
     @Test

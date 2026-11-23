@@ -52,7 +52,8 @@ import kotlin.math.pow
 class GestureRecognizer(
     private val mode: TouchMode,
     private val map: TouchMap,
-    private val cursorSpeed: Speed,
+    /** Settable, as [scroll] is: a live change keeps the cursor where it is and the touch in progress. */
+    var cursorSpeed: SpeedStep,
     /** Settable: a live change of the scroll settings keeps the cursor and the touch in progress. */
     var scroll: ScrollSetting,
     private val slop: Float,

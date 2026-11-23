@@ -37,7 +37,8 @@ object Palette {
     val icon = Color(0xFFC9CACF)
 
     /**
-     * White leads: the one primary action, the chosen cell, the selection ring, a switch that is on.
+     * White leads: the one primary action, the chosen cell, the selection ring, a switch that is on,
+     * a slider's thumb.
      * Text and icons on it take [onLead].
      */
     val lead = text
@@ -46,6 +47,8 @@ object Palette {
     val chosen = Color.White.copy(alpha = 0.10f)
     /** The recessed track behind segments and the icon square on a tinted card. */
     val well = Color.Black.copy(alpha = 0.26f)
+    /** A slider's track up to its thumb, over [well]: white at 22 %, brighter than [chosen] so it reads on the dark track. */
+    val trackFill = Color.White.copy(alpha = 0.22f)
 
     val danger = Color(0xFFFF7A70)
     val statusGood = Color(0xFF3DD68C)

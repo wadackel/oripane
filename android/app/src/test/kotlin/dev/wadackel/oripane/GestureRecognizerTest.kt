@@ -21,7 +21,7 @@ class GestureRecognizerTest {
     private fun make(
         mode: TouchMode = TouchMode.DIRECT,
         map: TouchMap = TouchMap.defaults(mode),
-        speed: Speed = Speed.NORMAL,
+        speed: SpeedStep = SpeedStep.default,
         scroll: ScrollSetting = ScrollSetting(),
         shared: Map<Gesture, GestureAction> = emptyMap(),
     ) {
@@ -235,7 +235,7 @@ class GestureRecognizerTest {
 
     @Test
     fun fingerScrollFollowsItsOwnSpeedAndDirection() {
-        make(scroll = ScrollSetting(Speed.FAST, reverse = true))
+        make(scroll = ScrollSetting(SpeedStep(7), reverse = true))
         touch(Kind.DOWN, 0, 400f to 400f)
         touch(Kind.POINTER_DOWN, 20, 400f to 400f, 600f to 400f)
         touch(Kind.MOVE, 40, 400f to 500f, 600f to 500f)
@@ -354,7 +354,7 @@ class GestureRecognizerTest {
 
     @Test
     fun theBottomBandFollowsTheFingerScrollSpeedAndDirection() {
-        makeStrip(scroll = ScrollSetting(Speed.FAST, reverse = true))
+        makeStrip(scroll = ScrollSetting(SpeedStep(7), reverse = true))
         touch(Kind.DOWN, 0, 500f to 1978f)
         touch(Kind.MOVE, 20, 520f to 1978f)
         assertThat(scrolls().single().dx).isEqualTo(-100f)
@@ -383,7 +383,7 @@ class GestureRecognizerTest {
 
     @Test
     fun theStripFollowsTheFingerScrollSpeedAndDirection() {
-        makeStrip(scroll = ScrollSetting(Speed.FAST, reverse = true))
+        makeStrip(scroll = ScrollSetting(SpeedStep(7), reverse = true))
         touch(Kind.DOWN, 0, 978f to 1000f)
         touch(Kind.MOVE, 20, 978f to 1020f)
         assertThat(scrolls().single().dy).isEqualTo(-100f)
@@ -598,18 +598,18 @@ class GestureRecognizerTest {
 
     @Test
     fun theTrackpadCursorStaysOnScreenAndSpeedsScale() {
-        make(TouchMode.TRACKPAD, map = noLongPress, speed = Speed.FAST)
+        make(TouchMode.TRACKPAD, map = noLongPress, speed = SpeedStep(7))
         sent += r.onStreamStarted().inputs
         touch(Kind.DOWN, 0, 0f to 1000f)
         touch(Kind.MOVE, 1000, 990f to 1000f)
         assertThat(pointers(PointerAction.Move).last().x).isEqualTo(1f)
 
-        make(TouchMode.TRACKPAD, map = noLongPress, speed = Speed.SLOW)
+        make(TouchMode.TRACKPAD, map = noLongPress, speed = SpeedStep(3))
         sent += r.onStreamStarted().inputs
         touch(Kind.DOWN, 0, 500f to 1000f)
         touch(Kind.MOVE, 1000, 600f to 1000f)
         val slow = pointers(PointerAction.Move).last().x - 0.5f
-        make(TouchMode.TRACKPAD, map = noLongPress, speed = Speed.FAST)
+        make(TouchMode.TRACKPAD, map = noLongPress, speed = SpeedStep(7))
         sent += r.onStreamStarted().inputs
         touch(Kind.DOWN, 0, 500f to 1000f)
         touch(Kind.MOVE, 1000, 600f to 1000f)

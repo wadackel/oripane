@@ -1,6 +1,6 @@
 /**
- * What both scenes share: choice and switch rows with the settings' choice lists, the page stack,
- * bottom sheet settings and the confirmation dialog.
+ * What both scenes share: choice, speed and switch rows with the settings' choice lists, the page
+ * stack, bottom sheet settings and the confirmation dialog.
  */
 package dev.wadackel.oripane
 
@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,14 +42,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -56,13 +61,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -117,6 +131,92 @@ fun <T> SegmentedChoices(
     }
 }
 
+/**
+ * A speed as its [factor] of the default, as the row shows it: two figures, so every step reads
+ * apart (0.35×, 0.71×, 1×, 1.4×, 2.8×).
+ */
+fun speedLabel(factor: Double): String {
+    val digits = String.format(Locale.US, if (factor >= 1) "%.1f" else "%.2f", factor)
+    return digits.trimEnd('0').trimEnd('.') + "×"
+}
+
+/**
+ * A speed's row: its name and its [factor] of the default, then a slider of its steps between a
+ * button a step slower and one a step faster. Every change of step ticks under the finger, the
+ * slider's and the buttons' alike, so a step can be counted without looking.
+ */
+@Composable
+fun SpeedRow(label: String, step: SpeedStep, factor: (SpeedStep) -> Double, note: String? = null, modifier: Modifier = Modifier, onChange: (SpeedStep) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    // The slider reports every move, and several can come before the next composition hands the new step back.
+    var sent by remember { mutableIntStateOf(step.step) }
+    SideEffect { sent = step.step }
+    val change = { next: SpeedStep ->
+        if (next.step != sent) {
+            sent = next.step
+            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+            onChange(next)
+        }
+    }
+    val shown = speedLabel(factor(step))
+    Column(modifier.padding(top = 4.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(label, style = Type.label, color = Palette.text)
+                if (note != null) Text(note, style = Type.note, color = Palette.textMuted, modifier = Modifier.padding(top = 2.dp))
+            }
+            Text(shown, style = Type.value, color = Palette.textMuted, maxLines = 1)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RoundButton(R.drawable.ic_minus, "Slower", background = Palette.surface3, enabled = step.step > SpeedStep.MIN) { change(step - 1) }
+            SpeedSlider(step, shown, Modifier.weight(1f), change)
+            RoundButton(R.drawable.ic_plus, "Faster", background = Palette.surface3, enabled = step.step < SpeedStep.MAX) { change(step + 1) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeedSlider(step: SpeedStep, shown: String, modifier: Modifier, onChange: (SpeedStep) -> Unit) {
+    Slider(
+        value = step.step.toFloat(),
+        onValueChange = { onChange(SpeedStep(it.roundToInt().coerceIn(SpeedStep.MIN, SpeedStep.MAX))) },
+        modifier = modifier.semantics { stateDescription = shown },
+        valueRange = SpeedStep.MIN.toFloat()..SpeedStep.MAX.toFloat(),
+        steps = SpeedStep.MAX - SpeedStep.MIN - 1,
+        thumb = { Box(Modifier.size(22.dp).background(Palette.lead, CircleShape)) },
+        track = { SpeedTrack(it) },
+    )
+}
+
+/**
+ * The recessed track, lit up to the thumb, with a dot at every step and a bar at the default: the
+ * way back to it without a reset button. The slider lays the track out from the first step's thumb
+ * centre to the last's, so the steps sit at even shares of its width.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeedTrack(state: SliderState) {
+    val range = state.valueRange
+    val share = (state.value - range.start) / (range.endInclusive - range.start)
+    Canvas(Modifier.fillMaxWidth().height(22.dp)) {
+        val y = size.height / 2
+        val h = 6.dp.toPx()
+        val corner = CornerRadius(h / 2)
+        drawRoundRect(Palette.well, Offset(0f, y - h / 2), Size(size.width, h), corner)
+        drawRoundRect(Palette.trackFill, Offset(0f, y - h / 2), Size(size.width * share, h), corner)
+        val last = SpeedStep.MAX - SpeedStep.MIN
+        for (i in 0..last) {
+            val x = size.width * i / last
+            if (i + SpeedStep.MIN == SpeedStep.DEFAULT) {
+                drawLine(Palette.textMuted, Offset(x, y - 7.dp.toPx()), Offset(x, y + 7.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            } else {
+                drawCircle(Palette.textFaint, 2.dp.toPx(), Offset(x, y))
+            }
+        }
+    }
+}
+
 /** The switch the pages draw: white when on, with a dark knob; grey when off. */
 @Composable
 fun SwitchMark(checked: Boolean, modifier: Modifier = Modifier) {
@@ -157,7 +257,6 @@ fun touchModeNote(m: TouchMode) = when (m) {
     TouchMode.TRACKPAD -> "The phone is a trackpad; a cursor moves on the Mac."
 }
 
-val speeds = listOf(Speed.SLOW to "Slow", Speed.NORMAL to "Normal", Speed.FAST to "Fast")
 val directions = listOf(false to "Standard", true to "Reversed")
 val stripSides = listOf(ScrollStrip.RIGHT to "Right", ScrollStrip.LEFT to "Left", ScrollStrip.OFF to "Off")
 const val stripNote = "Trackpad mode only. Hold the side band still to move it."

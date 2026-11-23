@@ -37,7 +37,7 @@ class SettingsTest {
                 """touch.map.direct={"tap":"click","longPress":"dragStart","doubleTapHold":"none","threeFingerDrag":"none","twoFingerTap":"rightClick","twoFingerSwipe":"scroll",$SHORTCUT_DEFAULTS} """ +
                 """touch.map.trackpad={"tap":"click","longPress":"radialMenu","doubleTapHold":"none","threeFingerDrag":"dragStart","twoFingerTap":"rightClick","twoFingerSwipe":"scroll",$SHORTCUT_DEFAULTS} """ +
                 "radial.menu=missionControl+copy+spaceRight+paste+showDesktop+keyboard+spaceLeft+rightClick " +
-                "touch.cursorSpeed=normal scroll.touch.speed=normal scroll.touch.reverse=false scroll.wheel.speed=normal scroll.wheel.reverse=false " +
+                "touch.cursorSpeed=5 scroll.touch.speed=5 scroll.touch.reverse=false scroll.wheel.speed=5 scroll.wheel.reverse=false " +
                 "scroll.strip=right scroll.strip.knob=0.64 scroll.strip.haptics=true scroll.band.size=medium scroll.inertia=true keyboard.incognito=false showStats=true",
         )
     }
@@ -49,7 +49,7 @@ class SettingsTest {
             mapDirect = TouchMap.defaults(TouchMode.DIRECT).with(Gesture.TWO_FINGER_TAP, GestureAction.Click),
             mapTrackpad = TouchMap.defaults(TouchMode.TRACKPAD).with(Gesture.THREE_FINGER_TAP, item(RadialItem.MUTE)).with(Gesture.FOUR_FINGER_SWIPE_UP, GestureAction.None)
                 .with(Gesture.TWO_FINGER_LONG_PRESS, GestureAction.Run(areaShot)).with(Gesture.DOUBLE_TAP_HOLD, GestureAction.Zoom),
-            cursorSpeed = Speed.FAST, touchScroll = ScrollSetting(Speed.SLOW, true), wheelScroll = ScrollSetting(Speed.FAST, false), scrollStrip = ScrollStrip.LEFT, stripKnobAt = 0.3f, scrollBandSize = BandSize.SMALL, stripHaptics = false, scrollInertia = false,
+            cursorSpeed = SpeedStep(7), touchScroll = ScrollSetting(SpeedStep(3), true), wheelScroll = ScrollSetting(SpeedStep(7), false), scrollStrip = ScrollStrip.LEFT, stripKnobAt = 0.3f, scrollBandSize = BandSize.SMALL, stripHaptics = false, scrollInertia = false,
             incognitoKeyboard = true, showStats = false,
         )
         prefs.settings = s
@@ -65,7 +65,49 @@ class SettingsTest {
         assertThat(s.fps).isEqualTo(60)
         assertThat(s.uiScale).isEqualTo(2.0)
         assertThat(s.touchMode).isEqualTo(TouchMode.DIRECT)
-        assertThat(s.cursorSpeed).isEqualTo(Speed.NORMAL)
+        assertThat(s.cursorSpeed).isEqualTo(SpeedStep.default)
+    }
+
+    @Test
+    fun aSpeedStoredAsSlowNormalOrFastKeepsItsOldSpeed() {
+        raw().edit().putString(SettingKeys.CURSOR_SPEED, "slow").putString(SettingKeys.TOUCH_SCROLL_SPEED, "fast").putString(SettingKeys.WHEEL_SCROLL_SPEED, "normal").apply()
+        val s = prefs.settings
+        assertThat(s.cursorSpeed).isEqualTo(SpeedStep(3))
+        assertThat(s.cursorSpeed.cursor).isWithin(1e-6f).of(0.8f)
+        assertThat(s.touchScroll.speed).isEqualTo(SpeedStep(7))
+        assertThat(s.touchScroll.speed.scroll).isEqualTo(2f)
+        assertThat(s.wheelScroll.speed).isEqualTo(SpeedStep.default)
+        assertThat(SpeedStep(7).cursor).isWithin(1e-6f).of(1.8f)
+        assertThat(SpeedStep(3).scroll).isEqualTo(0.5f)
+    }
+
+    @Test
+    fun aSpeedOffTheStepsReadsAsTheDefault() {
+        for (stored in listOf("0", "10", "4.5", "Fast")) {
+            raw().edit().putString(SettingKeys.CURSOR_SPEED, stored).apply()
+            assertThat(prefs.settings.cursorSpeed).isEqualTo(SpeedStep.default)
+        }
+    }
+
+    @Test
+    fun everySpeedStepReadsApartAsItsMultipleOfTheDefault() {
+        val steps = (SpeedStep.MIN..SpeedStep.MAX).map(::SpeedStep)
+        assertThat(steps.map { speedLabel(it.scrollFactor) }).containsExactly("0.25×", "0.35×", "0.5×", "0.71×", "1×", "1.4×", "2×", "2.8×", "4×").inOrder()
+        assertThat(steps.map { speedLabel(it.cursorFactor) }).containsExactly("0.44×", "0.54×", "0.67×", "0.82×", "1×", "1.2×", "1.5×", "1.8×", "2.3×").inOrder()
+    }
+
+    @Test
+    fun aSpeedStepStopsAtTheEndsOfTheSlider() {
+        assertThat(SpeedStep(SpeedStep.MAX) + 1).isEqualTo(SpeedStep(SpeedStep.MAX))
+        assertThat(SpeedStep(SpeedStep.MIN) - 1).isEqualTo(SpeedStep(SpeedStep.MIN))
+        assertThat(SpeedStep(4) + 1).isEqualTo(SpeedStep.default)
+    }
+
+    @Test
+    fun theHookSetsASpeedByItsStep() {
+        val p = SettingsHook.parse("touch.cursorSpeed=8,scroll.touch.speed=fast,scroll.wheel.speed=10")
+        assertThat(p.writes).containsExactly(SettingKeys.CURSOR_SPEED, "8")
+        assertThat(p.ignored).containsExactly(SettingKeys.TOUCH_SCROLL_SPEED, SettingKeys.WHEEL_SCROLL_SPEED).inOrder()
     }
 
     @Test
@@ -296,7 +338,7 @@ class SettingsTest {
     fun aStoredDoubleTapRowIsIgnoredAndATapClicksAsTheFingerLifts() {
         val stored = """{"tap":"click","doubleTap":"none","longPress":"dragStart","doubleTapHold":"none","threeFingerDrag":"dragStart","twoFingerTap":"rightClick","twoFingerSwipe":"scroll"}"""
         raw().edit().putString(SettingKeys.MAP_TRACKPAD, stored).apply()
-        val r = GestureRecognizer(TouchMode.TRACKPAD, prefs.settings.mapTrackpad, Speed.NORMAL, ScrollSetting(), slop = 10f, doubleTapSlop = 100f, density = 1f)
+        val r = GestureRecognizer(TouchMode.TRACKPAD, prefs.settings.mapTrackpad, SpeedStep.default, ScrollSetting(), slop = 10f, doubleTapSlop = 100f, density = 1f)
         r.setViewSize(1000, 2000)
         r.onStreamStarted()
         r.onTouch(GestureRecognizer.Sample(GestureRecognizer.Kind.DOWN, 0, listOf(GestureRecognizer.Finger(0, 500f, 1000f))))
@@ -314,10 +356,10 @@ class SettingsTest {
 
     @Test
     fun scrollSpeedAndDirectionApplyToTheirOwnInputOnly() {
-        val s = Settings(touchScroll = ScrollSetting(Speed.FAST, reverse = true))
+        val s = Settings(touchScroll = ScrollSetting(SpeedStep(7), reverse = true))
         assertThat(s.touchScroll.apply(10f)).isEqualTo(-20f)
         assertThat(s.wheelScroll.apply(10f)).isEqualTo(10f)
-        assertThat(ScrollSetting(Speed.SLOW).apply(10f)).isEqualTo(5f)
+        assertThat(ScrollSetting(SpeedStep(3)).apply(10f)).isEqualTo(5f)
     }
 
     @Test
