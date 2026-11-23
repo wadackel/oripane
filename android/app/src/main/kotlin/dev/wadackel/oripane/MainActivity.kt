@@ -3,7 +3,6 @@ package dev.wadackel.oripane
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
-import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -68,8 +67,11 @@ import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -80,7 +82,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import dev.wadackel.oripane.protocol.InputEvent
 import kotlinx.coroutines.delay
 import java.net.Inet4Address
-import kotlin.math.roundToInt
+
+/**
+ * How long the key row waits for the soft keyboard it asked for before it gives up. Gboard took up
+ * to 2.4 s on a busy emulator, its process stopped or not; the row only gives up on a keyboard that
+ * will not show at all, as with a physical keyboard attached.
+ */
+private const val IME_WAIT_MS = 10_000L
 
 class MainActivity : ComponentActivity(), ConnectionController.Ui {
     private lateinit var prefs: Prefs
@@ -132,6 +140,8 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
     private var keyboardField: ImeField? = null
     /** The field exists but the window had no focus yet: the keyboard is asked for once it returns. */
     private var imeWaitingForFocus = false
+    /** When the keyboard was last asked for (uptime ms), while the row waits for it; null before that. */
+    private var imeAskedAt by mutableStateOf<Long?>(null)
     private val keyEvents by lazy { virtualKeyEvents() }
     private var zoomLoggedAt = 0L
 
@@ -726,6 +736,8 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
         BackHandler(enabled = active) { streamUi.setMenu(onBack(streamUi.menu), "back") }
         val color = statusColor(streamUi.stats, reconnecting)
         LaunchedEffect(color) { log("ui status=${color.logName}") }
+        // The key row and the composition over it, in px; a menu button in a bottom corner sits above them.
+        var keyBarHeight by remember { mutableStateOf(0) }
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             val width = constraints.maxWidth.toFloat()
             val height = constraints.maxHeight.toFloat()
@@ -792,10 +804,20 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
                     log("ui menu_corner=${c.key}")
                 },
                 modifier = Modifier.align(menuCorner.alignment()),
+                keyBar = keyBarHeight.takeIf { streamUi.showKeyboard },
             )
             if (streamUi.showKeyboard) {
                 KeyboardWatch(reconnecting)
-                Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.ime)) {
+                Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.ime).onSizeChanged { keyBarHeight = it.height }) {
+                    // The field the keyboard types into takes no room and draws nothing: a key-shaped field in the row reads as
+                    // a dead key. It is still 1 px itself, as a view of no size never takes the focus and the keyboard never shows.
+                    AndroidView(
+                        factory = { ctx -> keyboardSink(ctx) },
+                        modifier = Modifier.layout { m, _ ->
+                            val p = m.measure(Constraints.fixed(1, 1))
+                            layout(0, 0) { p.place(0, 0) }
+                        },
+                    )
                     val (text, cursor) = streamUi.preedit
                     if (text.isNotEmpty()) PreeditBar(text, cursor)
                     KeyRow(
@@ -803,7 +825,6 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
                         onMod = ::rowMod,
                         onKey = ::rowKey,
                         onKeyReleased = { updateModKeys(streamUi.modKeys.afterKey()) },
-                        field = { AndroidView(factory = { ctx -> keyboardSink(ctx) }, modifier = Modifier.size(width = 48.dp, height = 40.dp)) },
                     )
                 }
             }
@@ -955,24 +976,27 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
     }
 
     /**
-     * Closes the row when the soft keyboard goes away, when it never came within a second, or when
-     * a reconnect starts. `open` is logged when the keyboard is first seen.
+     * Closes the row when the soft keyboard goes away, when it never came within [IME_WAIT_MS] of
+     * being asked for, or when a reconnect starts. The wait starts again at the request: the menu's
+     * sheet may hold the focus a moment before it, and a keyboard app that was stopped takes seconds
+     * to start. `open` is logged when the keyboard is first seen, with how long it took.
      */
     @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun KeyboardWatch(reconnecting: Boolean) {
         val visible = WindowInsets.isImeVisible
+        val askedAt = imeAskedAt
         var seen by remember { mutableStateOf(false) }
         LaunchedEffect(reconnecting) { if (reconnecting) closeKeyboard("reconnect") }
-        LaunchedEffect(visible) {
+        LaunchedEffect(visible, askedAt) {
             when {
                 visible -> if (!seen) {
                     seen = true
-                    log("ui keyboard open")
+                    log("ui keyboard open ms=${askedAt?.let { SystemClock.uptimeMillis() - it } ?: 0}")
                 }
                 seen -> closeKeyboard("close")
                 else -> {
-                    delay(1000)
+                    delay(IME_WAIT_MS)
                     closeKeyboard("ime_timeout")
                 }
             }
@@ -990,6 +1014,7 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
         keyboardField?.let { (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(it.windowToken, 0) }
         keyboardField = null
         imeWaitingForFocus = false
+        imeAskedAt = null
         streamUi.closeKeyboard(reason)
     }
 
@@ -1068,6 +1093,7 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
     }
 
     private fun showIme(f: ImeField) {
+        imeAskedAt = SystemClock.uptimeMillis()
         f.requestFocus()
         (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(f, 0)
     }
@@ -1151,12 +1177,6 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
         keyboardField = f
         // A field the keyboard closed without a word may have left its text in the strip.
         streamUi.setPreedit("", 0)
-        f.background = GradientDrawable().apply {
-            val density = ctx.resources.displayMetrics.density
-            cornerRadius = 8 * density
-            setColor(Palette.keyBg.toArgb())
-            setStroke(density.roundToInt().coerceAtLeast(1), Palette.keyBorder.toArgb())
-        }
         // The sheet's window may still hold the focus; asking for the keyboard then would go nowhere.
         f.post { if (f.hasWindowFocus()) showIme(f) else imeWaitingForFocus = true }
         return f

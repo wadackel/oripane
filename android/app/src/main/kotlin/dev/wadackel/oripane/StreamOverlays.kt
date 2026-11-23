@@ -17,12 +17,15 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -31,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,14 +117,35 @@ internal fun lineFor(size: TextUnit) = size * 1.3f
 /**
  * The menu button, a 44 dp grey plate. A long press lifts it to follow the finger; on release it
  * snaps to the corner nearest its centre within a parent of [parentWidth] by [parentHeight] pixels.
+ * While the key row is up ([keyBar], its height in pixels with the composition over it), a button in
+ * a bottom corner sits above the row and the soft keyboard, so the menu stays in reach while typing.
  */
 @Composable
-fun MenuButton(corner: MenuCorner, parentWidth: Float, parentHeight: Float, onTap: () -> Unit, onCorner: (MenuCorner) -> Unit, modifier: Modifier = Modifier) {
+fun MenuButton(
+    corner: MenuCorner,
+    parentWidth: Float,
+    parentHeight: Float,
+    onTap: () -> Unit,
+    onCorner: (MenuCorner) -> Unit,
+    modifier: Modifier = Modifier,
+    keyBar: Int? = null,
+) {
     var drag by remember { mutableStateOf(Offset.Zero) }
     var origin by remember { mutableStateOf(Offset.Zero) }
     var sizePx by remember { mutableStateOf(0f) }
+    val bar = keyBar?.takeIf { !corner.top }
+    val density = LocalDensity.current
+    // Added back on release: the corner is judged from where the button rests without the keyboard,
+    // or a raised button let go in place would snap to a top corner under a tall keyboard.
+    val lift by rememberUpdatedState(bar?.let { WindowInsets.ime.getBottom(density) + it } ?: 0)
+    val aboveKeyboard = if (bar != null) {
+        Modifier.windowInsetsPadding(WindowInsets.ime).padding(bottom = with(density) { bar.toDp() })
+    } else {
+        Modifier
+    }
     Box(
         modifier
+            .then(aboveKeyboard)
             .padding(16.dp)
             .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
             .onGloballyPositioned { origin = it.positionInParent() - drag; sizePx = it.size.width.toFloat() }
@@ -130,7 +155,7 @@ fun MenuButton(corner: MenuCorner, parentWidth: Float, parentHeight: Float, onTa
                 detectDragGesturesAfterLongPress(
                     onDrag = { change, d -> change.consume(); drag += d },
                     onDragEnd = {
-                        val c = origin + drag + Offset(sizePx / 2, sizePx / 2)
+                        val c = origin + drag + Offset(sizePx / 2, sizePx / 2 + lift)
                         drag = Offset.Zero
                         onCorner(MenuCorner.nearest(c.x, c.y, parentWidth, parentHeight))
                     },
