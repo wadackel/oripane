@@ -1,6 +1,7 @@
 package dev.wadackel.oripane
 
 import android.content.Context
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,11 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
+import com.google.common.truth.Truth.assertWithMessage
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -159,6 +162,37 @@ class StreamScreenshotTest(private val size: FoldSize) {
     fun radialMenuOfFourWithEmptyCells() {
         radial(selected = 2, sticky = false, entries = RadialEntry.spread(RadialEntry.defaults.filterNotNull().take(4)))
         shot("radial_overlay_four")
+    }
+
+    /**
+     * Opened by a finger at the screen's right edge, moved in as [RadialMenuState.opened] does, and
+     * checked that the tag above the plate keeps the plate's distance from the sides.
+     */
+    private fun radialAtRightEdge(selected: Int?, sticky: Boolean, entries: List<RadialEntry?> = RadialEntry.defaults) {
+        val m = metrics()
+        val x = m.w - 2
+        val y = m.h / 2
+        val state = RadialMenuState.opened(entries, x, y, x, y, m.w, m.h, RadialSize.MARGIN * m.d)
+            .copy(selected = selected, sticky = sticky)
+        compose.setContent { StreamFrame { RadialMenuOverlay(state, tint = videoTint, onPick = {}, onClose = {}) } }
+        val tag = compose.onNodeWithTag(RADIAL_TAG_TAG).fetchSemanticsNode().boundsInRoot
+        val edge = RadialSize.EDGE * m.d
+        assertWithMessage("the tag's right end, on a screen %s px wide", m.w).that(tag.right).isAtMost(m.w - edge + 1)
+        assertWithMessage("the tag's left end").that(tag.left).isAtLeast(edge - 1)
+    }
+
+    @Test
+    fun radialMenuLeftOpenAtTheRightEdge() {
+        radialAtRightEdge(selected = null, sticky = true)
+        shot("radial_overlay_sticky_edge")
+    }
+
+    @Test
+    fun radialMenuWithALongNameAtTheRightEdge() {
+        // A custom shortcut's name, near the 24 characters it may have, and three keys: wider than the plate.
+        val shot = RadialEntry.Custom(KeyEvent.KEYCODE_4, ModKey.CTRL.meta or ModKey.SHIFT.meta or ModKey.CMD.meta, "Copy screenshot of area", RadialLook.Text)
+        radialAtRightEdge(selected = 0, sticky = false, entries = listOf(shot) + RadialEntry.defaults.drop(1))
+        shot("radial_overlay_selected_edge")
     }
 
     @Test

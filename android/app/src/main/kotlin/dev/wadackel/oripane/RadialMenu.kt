@@ -262,8 +262,11 @@ object RadialSize {
     /** A move shorter than this from where the finger opened the menu picks nothing. */
     const val DEAD_ZONE = 24f
 
+    /** How far the plate, and the tag that names its item, keep from the screen's edges. */
+    const val EDGE = 12f
+
     /** How far the centre keeps from the screen's edges, so that the whole plate shows. */
-    const val MARGIN = PLATE / 2 + 12f
+    const val MARGIN = PLATE / 2 + EDGE
 }
 
 /**

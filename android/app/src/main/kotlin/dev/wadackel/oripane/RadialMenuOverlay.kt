@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -68,12 +69,14 @@ import kotlin.math.roundToInt
 
 /**
  * Places the content so that its ([alignX], [alignY]) share sits on the parent's point ([x], [y]),
- * kept inside the parent across. It takes the parent's whole area, so siblings each place themselves.
+ * kept [inset] inside the parent's sides, or centred across when it is too wide for that. It takes
+ * the parent's whole area, so siblings each place themselves.
  */
-private fun Modifier.placedAt(x: Float, y: Float, alignX: Float = 0.5f, alignY: Float = 0.5f) = layout { m, c ->
+private fun Modifier.placedAt(x: Float, y: Float, alignX: Float = 0.5f, alignY: Float = 0.5f, inset: Dp = 0.dp) = layout { m, c ->
     val p = m.measure(c.copy(minWidth = 0, minHeight = 0))
+    val side = minOf(inset.roundToPx(), (c.maxWidth - p.width) / 2)
     layout(c.maxWidth, c.maxHeight) {
-        p.place((x - p.width * alignX).roundToInt().coerceIn(0, (c.maxWidth - p.width).coerceAtLeast(0)), (y - p.height * alignY).roundToInt())
+        p.place((x - p.width * alignX).roundToInt().coerceIn(side, maxOf(side, c.maxWidth - p.width - side)), (y - p.height * alignY).roundToInt())
     }
 }
 
@@ -216,6 +219,9 @@ private fun Keycaps(combo: String) {
 /** A key cap on the white name tag: a step darker than the tag. */
 private val KeyOnTag = Color(0xFFDADADF)
 
+/** The tag above the plate, or below it near the top: the hint, or the selected item's name. */
+internal const val RADIAL_TAG_TAG = "radialTag"
+
 /**
  * The radial menu over the stream: the plate with the items in its cells, opaque enough to read on
  * any screen without darkening the video, and the selected item's name and keys above it. While the finger that opened it is down, the
@@ -247,11 +253,16 @@ fun RadialMenuOverlay(state: RadialMenuState, tint: Color?, onPick: (Int) -> Uni
             val edge = with(density) { (RadialSize.PLATE / 2 + 12).dp.toPx() }
             val room = with(density) { (36 + 8).dp.toPx() }
             val above = state.centerY - edge
-            val place = if (above >= room) Modifier.placedAt(center.x, above, alignY = 1f) else Modifier.placedAt(center.x, state.centerY + edge, alignY = 0f)
+            val inset = RadialSize.EDGE.dp
+            val place = if (above >= room) {
+                Modifier.placedAt(center.x, above, alignY = 1f, inset = inset)
+            } else {
+                Modifier.placedAt(center.x, state.centerY + edge, alignY = 0f, inset = inset)
+            }
             // The selected item's name on a white tag, as white marks what is chosen everywhere on the stream.
             val tag = if (selected != null) Modifier.plate(CircleShape, ground = Palette.lead) else Modifier.plate(CircleShape)
             Row(
-                place.graphicsLayer { alpha = fade }.height(36.dp).then(tag).padding(start = 14.dp, end = if (selected?.combo?.takeIf { it != selected.label } != null) 6.dp else 14.dp),
+                place.testTag(RADIAL_TAG_TAG).graphicsLayer { alpha = fade }.height(36.dp).then(tag).padding(start = 14.dp, end = if (selected?.combo?.takeIf { it != selected.label } != null) 6.dp else 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
