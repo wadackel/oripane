@@ -203,6 +203,38 @@ class StreamUiTest {
         assertThat(Viewport(8f).clamped(tall).zoom).isEqualTo(5f)
     }
 
+    /** The barred frame with the key row's top 900 px down: the keyboard covers only black bar, 100 of its 187.5 px. */
+    private val barredKeyboard = barred.copy(visibleH = 900f)
+
+    @Test
+    fun aVideoThatFitsAboveTheKeyboardRisesJustClearOfIt() {
+        val small = Placement(1000f, 625f, 1000f, 2000f, 0f, 687.5f, visibleH = 1200f)
+        // Centred, its bottom would be at 1312.5 px: 112.5 px under the key row.
+        assertThat(Viewport().transform(small).translationY).isWithin(1e-3f).of(-112.5f)
+        assertThat(Viewport().toVideo(500f, 0f, small).second).isWithin(1e-5f).of(112.5f / 625f)
+    }
+
+    @Test
+    fun aVideoTallerThanThePartAboveTheKeyboardMovesDownToItsBottomAndNoFurther() {
+        assertThat(barredKeyboard.y.ratio).isWithin(1e-6f).of(900f / 625f)
+        val full = Placement(1000f, 2000f, visibleH = 1000f)
+        assertThat(Viewport(1f, 0f, 0.9f).clamped(full).top).isEqualTo(0.5f)
+        assertThat(Viewport(1f, 0f, 0.5f).transform(full).translationY).isEqualTo(-1000f)
+        assertThat(full.y.shown(1f, 0.5f)).isEqualTo(0f to 1000f)
+    }
+
+    @Test
+    fun theKeyboardNeverTakesTheFillZoomBelowOne() {
+        assertThat(Placement(1000f, 2000f, visibleH = 1000f).fillZoom).isEqualTo(1f)
+        assertThat(barredKeyboard.fillZoom).isWithin(1e-6f).of(900f / 625f)
+    }
+
+    @Test
+    fun withoutTheKeyboardThePlacementIsTheOneBefore() {
+        assertThat(barredKeyboard.withoutKeyboard()).isEqualTo(barred)
+        assertThat(Viewport().transform(barredKeyboard.withoutKeyboard())).isEqualTo(SurfaceTransform(1f, -0f, -0f))
+    }
+
     @Test
     fun aScreenSmallerThanTheFrameOrUnknownCountsAsTheFrame() {
         assertThat(Placement(1000f, 2000f, 320f, 470f, 0f, 0f).fillZoom).isEqualTo(1f)

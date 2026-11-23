@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -71,6 +72,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -346,7 +348,7 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
     private fun applyViewport() {
         val frame = videoFrame ?: return
         val surface = videoSurface ?: return
-        val t = viewport.transform(placementOf(frame))
+        val t = viewport.transform(touchInput?.placement ?: placementOf(frame))
         surface.pivotX = 0f
         surface.pivotY = 0f
         surface.scaleX = t.scale
@@ -729,6 +731,7 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
         }
     }
 
+    @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun StreamScreen(state: ClientState, active: Boolean) {
         val s = (state as? ClientState.Reconnecting)?.last ?: state as ClientState.Streaming
@@ -738,9 +741,16 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
         LaunchedEffect(color) { log("ui status=${color.logName}") }
         // The key row and the composition over it, in px; a menu button in a bottom corner sits above them.
         var keyBarHeight by remember { mutableStateOf(0) }
+        // The row alone, without the composition over it: the picture keeps the room for that instead of jumping.
+        var keyRowHeight by remember { mutableStateOf(0) }
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             val width = constraints.maxWidth.toFloat()
             val height = constraints.maxHeight.toFloat()
+            // Where the keyboard is going, not where its slide has got to: the picture moves once, as it starts.
+            val imeTarget = WindowInsets.imeAnimationTarget.getBottom(LocalDensity.current)
+            val keyboardTop = if (streamUi.showKeyboard && imeTarget > 0 && keyRowHeight > 0) height - imeTarget - keyRowHeight else null
+            val composeRoom = with(LocalDensity.current) { (PREEDIT_HEIGHT + 16.dp).toPx() }
+            LaunchedEffect(keyboardTop, height) { touchInput?.setKeyboard(keyboardTop, height, composeRoom) }
             val (frameW, frameH) = fitInside(constraints.maxWidth, constraints.maxHeight, s.width, s.height)
             AndroidView(
                 factory = { ctx -> videoView(ctx) },
@@ -825,6 +835,8 @@ class MainActivity : ComponentActivity(), ConnectionController.Ui {
                         onMod = ::rowMod,
                         onKey = ::rowKey,
                         onKeyReleased = { updateModKeys(streamUi.modKeys.afterKey()) },
+                        onDrag = { touchInput?.panBy(0f, it) },
+                        modifier = Modifier.onSizeChanged { keyRowHeight = it.height },
                     )
                 }
             }

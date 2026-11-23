@@ -60,6 +60,98 @@ class TouchInputTest {
 
     private fun pointers(action: PointerAction) = sent.filterIsInstance<InputEvent.Pointer>().filter { it.action == action }
 
+    /** The screen laid out at the frame's size, so the keyboard's key row can cut it short; the looper's layout pass undoes it. */
+    private fun fullScreen() {
+        (view.parent as View).layout(0, 0, 1000, 2000)
+        view.layout(0, 0, 1000, 2000)
+    }
+
+    private fun keyboardInput(): Pair<TouchInput, () -> Viewport?> {
+        fullScreen()
+        var last: Viewport? = null
+        input = TouchInput(view, onViewport = { last = it }) { sent += it }
+        return input to { last }
+    }
+
+    @Test
+    fun theKeyboardLiftsTheTappedPointAndItsGoingPutsTheViewBack() {
+        val (i, viewport) = keyboardInput()
+        touch(MotionEvent.ACTION_DOWN, 0, 500f to 1800f)
+        touch(MotionEvent.ACTION_UP, 60, 500f to 1800f)
+        fullScreen()
+        i.setKeyboard(1000f, 2000f, 40f)
+        assertThat(viewport()!!.top).isWithin(1e-6f).of(0.45f)
+        assertThat(i.placement.visibleH).isEqualTo(1000f)
+        i.setKeyboard(null, 2000f, 40f)
+        assertThat(viewport()).isEqualTo(Viewport())
+        assertThat(i.placement.visibleH).isEqualTo(2000f)
+    }
+
+    @Test
+    fun aZoomResetWithTheKeyboardUpLiftsTheTappedPointAgain() {
+        val (i, viewport) = keyboardInput()
+        touch(MotionEvent.ACTION_DOWN, 0, 500f to 1800f)
+        touch(MotionEvent.ACTION_UP, 60, 500f to 1800f)
+        fullScreen()
+        i.setKeyboard(1000f, 2000f, 40f)
+        i.setViewport(Viewport())
+        assertThat(viewport()!!.top).isWithin(1e-6f).of(0.45f)
+    }
+
+    @Test
+    fun aFoldWithTheKeyboardUpLiftsOnTheNewRowNotTheOldOne() {
+        val (i, viewport) = keyboardInput()
+        touch(MotionEvent.ACTION_DOWN, 0, 500f to 1800f)
+        touch(MotionEvent.ACTION_UP, 60, 500f to 1800f)
+        fullScreen()
+        i.setKeyboard(1000f, 2000f, 40f)
+        // The views take the new size first; the row's new top follows.
+        (view.parent as View).layout(0, 0, 1000, 1500)
+        view.layout(0, 0, 1000, 1500)
+        i.setKeyboard(700f, 1500f, 40f)
+        // The tapped point, 0.9 down, sits 70 px (the edge band) above the new row.
+        assertThat(viewport()!!.top).isWithin(1e-5f).of(0.9f - 630f / 1500f)
+    }
+
+    @Test
+    fun aNewTouchModeWithTheKeyboardUpStillClosesBackToTheViewBefore() {
+        val (i, viewport) = keyboardInput()
+        touch(MotionEvent.ACTION_DOWN, 0, 500f to 1800f)
+        touch(MotionEvent.ACTION_UP, 60, 500f to 1800f)
+        fullScreen()
+        i.setKeyboard(1000f, 2000f, 40f)
+        i.applySettings(Settings.defaults.copy(touchMode = TouchMode.TRACKPAD))
+        fullScreen()
+        i.setKeyboard(null, 2000f, 40f)
+        assertThat(viewport()).isEqualTo(Viewport())
+    }
+
+    @Test
+    fun theScrollBandsSitAboveTheKeyRowWhileTheKeyboardIsUp() {
+        fullScreen()
+        var bands: ScrollBands? = null
+        val i = TouchInput(view, Settings.defaults.copy(touchMode = TouchMode.TRACKPAD), onStripArea = { bands = it }) { sent += it }
+        fullScreen()
+        i.setKeyboard(1000f, 2000f, 40f)
+        assertThat(bands!!.horizontal.bottom).isEqualTo(1000f)
+        assertThat(bands!!.lane.bottom).isEqualTo(1000f)
+        fullScreen()
+        i.setKeyboard(null, 2000f, 40f)
+        assertThat(bands!!.horizontal.bottom).isGreaterThan(1000f)
+    }
+
+    @Test
+    fun aKeyboardThatOnlyChangesHeightKeepsTheView() {
+        val (i, viewport) = keyboardInput()
+        touch(MotionEvent.ACTION_DOWN, 0, 500f to 1800f)
+        touch(MotionEvent.ACTION_UP, 60, 500f to 1800f)
+        fullScreen()
+        i.setKeyboard(1000f, 2000f, 40f)
+        i.panBy(0f, 200f)
+        i.setKeyboard(1100f, 2000f, 40f)
+        assertThat(viewport()!!.top).isWithin(1e-6f).of(0.35f)
+    }
+
     @Test
     fun tapIsAClickAtTheTouchedPoint() {
         touch(MotionEvent.ACTION_DOWN, 0, 250f to 500f)

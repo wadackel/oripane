@@ -87,7 +87,7 @@ fun SettingsGroups(groups: List<SettingsGroup>, color: Color = Palette.surface1)
     }
 }
 
-private fun gestureCount(map: TouchMap, mode: TouchMode) = Gesture.entries.count { (mode == TouchMode.TRACKPAD || it != Gesture.THREE_FINGER_DRAG) && map[it] != GestureAction.None }
+private fun gestureCount(map: TouchMap) = Gesture.entries.count { map[it] != GestureAction.None }
 
 private val Settings.radialCount get() = radialMenu.count { it != null }
 
@@ -101,7 +101,7 @@ private fun bandsSummary(s: ScrollStrip) = when (s) {
 fun sectionSummary(section: SettingsSection, s: Settings, build: BuildInfo) = when (section) {
     SettingsSection.VIDEO -> "${(s.scale * 100).toInt()}% · ${s.fps} fps · Data saver ${dataSaverOptions.first { it.first == s.dataSaver }.second.lowercase()}"
     SettingsSection.TOUCH -> "${modeLabel(s.touchMode)} · cursor ${speedLabel(s.cursorSpeed.cursorFactor)}"
-    SettingsSection.GESTURES -> "Direct ${gestureCount(s.mapDirect, TouchMode.DIRECT)} · Trackpad ${gestureCount(s.mapTrackpad, TouchMode.TRACKPAD)}"
+    SettingsSection.GESTURES -> "Direct ${gestureCount(s.mapDirect)} · Trackpad ${gestureCount(s.mapTrackpad)}"
     SettingsSection.SCROLLING -> "${directions.first { it.first == s.touchScroll.reverse }.second} · ${bandsSummary(s.scrollStrip)}"
     SettingsSection.ABOUT -> "Version ${build.version}"
 }
@@ -196,7 +196,7 @@ private fun sectionGroups(section: SettingsSection, s: Settings, onChange: (Sett
         SettingsSection.GESTURES -> listOf(
             SettingsGroup(
                 null,
-                TouchMode.entries.map<TouchMode, @Composable (PaddingValues) -> Unit> { mode -> { p -> LinkRow(gesturesTitle(mode), p, value = "${gestureCount(s.mapFor(mode), mode)} set", icon = R.drawable.ic_menu) { onMap(mode) } } },
+                TouchMode.entries.map<TouchMode, @Composable (PaddingValues) -> Unit> { mode -> { p -> LinkRow(gesturesTitle(mode), p, value = "${gestureCount(s.mapFor(mode))} set", icon = R.drawable.ic_menu) { onMap(mode) } } },
             ),
         )
         SettingsSection.SCROLLING -> scrollingGroups(s, set)

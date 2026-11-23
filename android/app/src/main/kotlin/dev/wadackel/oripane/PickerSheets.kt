@@ -39,6 +39,7 @@ internal fun actionLabel(a: GestureAction) = when (a) {
     GestureAction.Click -> "Click"
     GestureAction.RIGHT_CLICK -> "Right-click"
     GestureAction.Drag -> "Start drag"
+    GestureAction.Pan -> "Move the view"
     GestureAction.Scroll -> "Scroll"
     GestureAction.Zoom -> "Zoom"
     GestureAction.RadialMenu -> "Radial menu"

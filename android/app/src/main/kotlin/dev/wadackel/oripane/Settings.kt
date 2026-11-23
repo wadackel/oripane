@@ -64,6 +64,9 @@ sealed interface GestureAction {
 
     data object Drag : GestureAction { override val key = "dragStart" }
 
+    /** Three-finger drag in the direct mode: the fingers move the picture and send nothing. */
+    data object Pan : GestureAction { override val key = "pan" }
+
     data object Scroll : GestureAction { override val key = "scroll" }
 
     /** Double tap and hold only: the finger's travel up and down zooms the video. */
@@ -92,8 +95,8 @@ enum class Gesture(val key: String, val label: String, val choices: List<Gesture
     TAP("tap", "Tap", listOf(GestureAction.Click, GestureAction.RIGHT_CLICK, GestureAction.None)),
     LONG_PRESS("longPress", "Long press", listOf(GestureAction.Drag, GestureAction.RadialMenu, GestureAction.None), catalog = true),
     DOUBLE_TAP_HOLD("doubleTapHold", "Double tap and hold", listOf(GestureAction.Drag, GestureAction.Zoom, GestureAction.Scroll, GestureAction.None)),
-    /** Trackpad mode only; the direct mode never reads it. */
-    THREE_FINGER_DRAG("threeFingerDrag", "Three-finger drag", listOf(GestureAction.Drag, GestureAction.None)),
+    /** A drag in the trackpad mode, the picture moving in the direct mode: [choicesIn] tells them apart. */
+    THREE_FINGER_DRAG("threeFingerDrag", "Three-finger drag", listOf(GestureAction.Drag, GestureAction.Pan, GestureAction.None)),
     TWO_FINGER_TAP("twoFingerTap", "Two-finger tap", ONE_SHOT_CHOICES, catalog = true),
     TWO_FINGER_SWIPE("twoFingerSwipe", "Two-finger swipe", listOf(GestureAction.Scroll, GestureAction.None)),
     TWO_FINGER_LONG_PRESS("twoFingerLongPress", "Two-finger long press", ONE_SHOT_CHOICES, catalog = true),
@@ -106,7 +109,14 @@ enum class Gesture(val key: String, val label: String, val choices: List<Gesture
     FOUR_FINGER_SPREAD("fourFingerSpread", "Four-finger spread", ONE_SHOT_CHOICES, catalog = true),
     ;
 
-    fun takes(a: GestureAction) = a in choices || (catalog && a is GestureAction.Run)
+    /** The fixed choices in [mode]: three fingers grab only on the trackpad and move the picture only in the direct mode. */
+    fun choicesIn(mode: TouchMode) = when {
+        this != THREE_FINGER_DRAG -> choices
+        mode == TouchMode.DIRECT -> choices - GestureAction.Drag
+        else -> choices - GestureAction.Pan
+    }
+
+    fun takes(a: GestureAction, mode: TouchMode) = a in choicesIn(mode) || (catalog && a is GestureAction.Run)
 }
 
 /** The fixed choices of a gesture that fires once: the rest is the radial menu's vocabulary. */
@@ -134,7 +144,7 @@ data class TouchMap(val actions: Map<Gesture, GestureAction>) {
                 Gesture.TAP to GestureAction.Click,
                 Gesture.LONG_PRESS to if (mode == TouchMode.DIRECT) GestureAction.Drag else GestureAction.RadialMenu,
                 Gesture.DOUBLE_TAP_HOLD to GestureAction.None,
-                Gesture.THREE_FINGER_DRAG to if (mode == TouchMode.DIRECT) GestureAction.None else GestureAction.Drag,
+                Gesture.THREE_FINGER_DRAG to if (mode == TouchMode.DIRECT) GestureAction.Pan else GestureAction.Drag,
                 Gesture.TWO_FINGER_TAP to GestureAction.RIGHT_CLICK,
                 Gesture.TWO_FINGER_SWIPE to GestureAction.Scroll,
                 Gesture.TWO_FINGER_LONG_PRESS to GestureAction.None,
@@ -159,15 +169,15 @@ data class TouchMap(val actions: Map<Gesture, GestureAction>) {
             return TouchMap(
                 Gesture.entries.associateWith { g ->
                     val stored = o?.opt(g.key)
-                    val a = if (stored is JSONObject) RadialMenuJson.customEntry(stored)?.let(GestureAction::Run) else action(g, stored as? String)
-                    a?.takeIf(g::takes) ?: d[g]
+                    val a = if (stored is JSONObject) RadialMenuJson.customEntry(stored)?.let(GestureAction::Run) else action(g, stored as? String, mode)
+                    a?.takeIf { g.takes(it, mode) } ?: d[g]
                 },
             )
         }
 
-        /** A stored string as an action [g] can take: one of its own, or a built-in item for a gesture with the catalog. */
-        fun action(g: Gesture, key: String?): GestureAction? =
-            g.choices.firstOrNull { it.key == key } ?: RadialItem.of(key)?.takeIf { g.catalog }?.let(::item)
+        /** A stored string as an action [g] can take in [mode]: one of its own, or a built-in item for a gesture with the catalog. */
+        fun action(g: Gesture, key: String?, mode: TouchMode): GestureAction? =
+            g.choicesIn(mode).firstOrNull { it.key == key } ?: RadialItem.of(key)?.takeIf { g.catalog }?.let(::item)
     }
 }
 

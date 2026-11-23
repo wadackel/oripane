@@ -34,7 +34,7 @@ class SettingsTest {
         assertThat(s).isEqualTo(Settings.defaults)
         assertThat(s.describe()).isEqualTo(
             "video.scale=1.0 video.fps=60 dataSaver=auto video.uiScale=2.0 touch.mode=direct " +
-                """touch.map.direct={"tap":"click","longPress":"dragStart","doubleTapHold":"none","threeFingerDrag":"none","twoFingerTap":"rightClick","twoFingerSwipe":"scroll",$SHORTCUT_DEFAULTS} """ +
+                """touch.map.direct={"tap":"click","longPress":"dragStart","doubleTapHold":"none","threeFingerDrag":"pan","twoFingerTap":"rightClick","twoFingerSwipe":"scroll",$SHORTCUT_DEFAULTS} """ +
                 """touch.map.trackpad={"tap":"click","longPress":"radialMenu","doubleTapHold":"none","threeFingerDrag":"dragStart","twoFingerTap":"rightClick","twoFingerSwipe":"scroll",$SHORTCUT_DEFAULTS} """ +
                 "radial.menu=missionControl+copy+spaceRight+paste+showDesktop+keyboard+spaceLeft+rightClick " +
                 "touch.cursorSpeed=5 scroll.touch.speed=5 scroll.touch.reverse=false scroll.wheel.speed=5 scroll.wheel.reverse=false " +
@@ -239,7 +239,7 @@ class SettingsTest {
         val s = prefs.settings
         assertThat(s.mapTrackpad).isEqualTo(TouchMap.defaults(TouchMode.TRACKPAD).with(Gesture.THREE_FINGER_TAP, item(RadialItem.MUTE)))
         assertThat(s.mapDirect).isEqualTo(direct.with(Gesture.THREE_FINGER_TAP, item(RadialItem.MUTE)))
-        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(3)
+        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(4)
     }
 
     @Test
@@ -259,7 +259,7 @@ class SettingsTest {
         assertThat(s.mapDirect).isEqualTo(moved.entries.fold(direct) { m, (g, a) -> m.with(g, a) })
         assertThat(s.mapTrackpad).isEqualTo(moved.entries.fold(TouchMap.defaults(TouchMode.TRACKPAD)) { m, (g, a) -> m.with(g, a) })
         assertThat(raw().contains(MAC_KEY)).isFalse()
-        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(3)
+        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(4)
     }
 
     @Test
@@ -269,7 +269,7 @@ class SettingsTest {
         prefs.migrate()
         assertThat(raw().getString(SettingKeys.MAP_TRACKPAD, null)).isEqualTo(trackpad)
         assertThat(raw().contains(SettingKeys.MAP_DIRECT)).isFalse()
-        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(3)
+        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(4)
     }
 
     @Test
@@ -289,7 +289,7 @@ class SettingsTest {
         val m = prefs.settings.mapTrackpad
         assertThat(m[Gesture.LONG_PRESS]).isEqualTo(GestureAction.RadialMenu)
         assertThat(m[Gesture.TWO_FINGER_TAP]).isEqualTo(GestureAction.Click)
-        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(3)
+        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(4)
     }
 
     @Test
@@ -332,6 +332,28 @@ class SettingsTest {
         prefs.settings = Settings.defaults.copy(mapTrackpad = chosen)
         prefs.migrate()
         assertThat(Prefs(RuntimeEnvironment.getApplication()).settings.mapTrackpad).isEqualTo(chosen)
+    }
+
+    @Test
+    fun aStoredDirectThreeFingerDragOfNothingBecomesMovingTheViewOnce() {
+        val stored = TouchMap.defaults(TouchMode.DIRECT).with(Gesture.THREE_FINGER_DRAG, GestureAction.None).with(Gesture.TWO_FINGER_TAP, GestureAction.Click)
+        raw().edit().putInt("settingsVersion", 3).putString(SettingKeys.MAP_DIRECT, stored.toJson()).apply()
+        prefs.migrate()
+        assertThat(prefs.settings.mapDirect).isEqualTo(stored.with(Gesture.THREE_FINGER_DRAG, GestureAction.Pan))
+        assertThat(raw().getInt("settingsVersion", 0)).isEqualTo(4)
+        val chosen = stored.with(Gesture.THREE_FINGER_DRAG, GestureAction.None)
+        prefs.settings = Settings.defaults.copy(mapDirect = chosen)
+        prefs.migrate()
+        assertThat(Prefs(RuntimeEnvironment.getApplication()).settings.mapDirect).isEqualTo(chosen)
+    }
+
+    @Test
+    fun threeFingerDragTakesOnlyTheActionOfItsMode() {
+        assertThat(TouchMap.fromJson("""{"threeFingerDrag":"dragStart"}""", TouchMode.DIRECT)[Gesture.THREE_FINGER_DRAG]).isEqualTo(GestureAction.Pan)
+        assertThat(TouchMap.fromJson("""{"threeFingerDrag":"pan"}""", TouchMode.TRACKPAD)[Gesture.THREE_FINGER_DRAG]).isEqualTo(GestureAction.Drag)
+        assertThat(TouchMap.fromJson("""{"threeFingerDrag":"none"}""", TouchMode.DIRECT)[Gesture.THREE_FINGER_DRAG]).isEqualTo(GestureAction.None)
+        assertThat(Gesture.THREE_FINGER_DRAG.choicesIn(TouchMode.DIRECT)).containsExactly(GestureAction.Pan, GestureAction.None).inOrder()
+        assertThat(Gesture.THREE_FINGER_DRAG.choicesIn(TouchMode.TRACKPAD)).containsExactly(GestureAction.Drag, GestureAction.None).inOrder()
     }
 
     @Test

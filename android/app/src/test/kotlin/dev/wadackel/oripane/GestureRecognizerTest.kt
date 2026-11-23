@@ -1002,7 +1002,7 @@ class GestureRecognizerTest {
     }
 
     @Test
-    fun aDirectDragInTheEdgeBandPansEveryStepAfterThePress() {
+    fun aDirectPressHeldInTheEdgeBandPansEveryStepOnceItOutlastsATap() {
         make()
         r.setViewport(Viewport(2f, 0.25f, 0.25f))
         touch(Kind.DOWN, 0, 950f to 1000f)
@@ -1010,13 +1010,14 @@ class GestureRecognizerTest {
         assertThat(r.nextDeadline()).isEqualTo(GestureRecognizer.PRESS_DELAY)
         assertThat(r.viewport.left).isEqualTo(0.25f)
         at(GestureRecognizer.PRESS_DELAY)
-        assertThat(r.nextDeadline()).isEqualTo(GestureRecognizer.PRESS_DELAY + 16)
-        at(GestureRecognizer.PRESS_DELAY + 16)
+        assertThat(r.nextDeadline()).isEqualTo(GestureRecognizer.TAP_MAX)
+        assertThat(r.viewport.left).isEqualTo(0.25f)
+        at(GestureRecognizer.TAP_MAX)
         // Half deep in the band: a quarter of the viewport's width per second, for 16 ms.
         assertThat(r.viewport.left).isWithin(1e-5f).of(0.25f + 0.5f * 0.5f * 0.5f * 0.016f)
         val drag = pointers(PointerAction.Drag).single()
         assertThat(drag.x).isWithin(1e-5f).of(r.viewport.left + 0.95f / 2)
-        assertThat(r.nextDeadline()).isEqualTo(GestureRecognizer.PRESS_DELAY + 32)
+        assertThat(r.nextDeadline()).isEqualTo(GestureRecognizer.TAP_MAX + 16)
     }
 
     @Test
@@ -1072,13 +1073,13 @@ class GestureRecognizerTest {
         makeBarred()
         r.setViewport(Viewport(2f, 0.25f, 0.1f))
         touch(Kind.DOWN, 0, 500f to -180f)
-        at(GestureRecognizer.PRESS_DELAY + 32)
+        at(GestureRecognizer.TAP_MAX + 32)
         assertThat(r.viewport.top).isLessThan(0.1f)
 
         makeBarred()
         r.setViewport(Viewport(2f, 0.25f, 0.1f))
         touch(Kind.DOWN, 0, 500f to 10f)
-        at(GestureRecognizer.PRESS_DELAY + 32)
+        at(GestureRecognizer.TAP_MAX + 32)
         assertThat(r.viewport.top).isEqualTo(0.1f)
     }
 
@@ -1120,6 +1121,234 @@ class GestureRecognizerTest {
         assertThat(r.viewport.zoom).isEqualTo(5f)
         r.setViewSize(Placement(1000f, 200f, 1000f, 320f, 0f, 60f))
         assertThat(r.viewport.zoom).isEqualTo(4f)
+    }
+
+    // MARK: the soft keyboard
+
+    /** The 1000 by 2000 frame filling the screen, with the key row's top halfway down. */
+    private val keyboardUp = Placement(1000f, 2000f, visibleH = 1000f)
+
+    private val noKeyboard = Placement(1000f, 2000f)
+
+    private fun lift(margin: Float = 40f) = take(r.liftKeyboard(keyboardUp, margin))
+
+    @Test
+    fun aDirectTapLowOnTheScreenShowsJustAboveTheKeyboardAsItOpens() {
+        make()
+        tap(0, 500f, 1800f, 60)
+        sent.clear()
+        lift()
+        // Clear of the edge band, 100 px above the row: the tapped point sits at 900 px.
+        assertThat(r.viewport.top).isWithin(1e-6f).of(0.9f - 900f / 2000f)
+        assertThat(r.toVideo(500f, 900f).second).isWithin(1e-5f).of(0.9f)
+        assertThat(sent).isEmpty()
+    }
+
+    @Test
+    fun aTapLongEnoughForTheTimersPressStillMarksThePointToLift() {
+        make()
+        tap(0, 500f, 1800f, 200)
+        lift()
+        assertThat(r.toVideo(500f, 900f).second).isWithin(1e-5f).of(0.9f)
+    }
+
+    @Test
+    fun theCompositionsRoomWinsOverAThinnerEdgeBand() {
+        make()
+        tap(0, 500f, 1600f, 60)
+        lift(margin = 250f)
+        assertThat(r.toVideo(500f, 750f).second).isWithin(1e-5f).of(0.8f)
+    }
+
+    @Test
+    fun aTappedPointAlreadyAboveTheKeyboardStaysWhereItIs() {
+        make()
+        tap(0, 500f, 300f, 60)
+        lift()
+        assertThat(r.viewport).isEqualTo(Viewport())
+    }
+
+    @Test
+    fun aZoomedTappedPointAlreadyAboveTheKeyboardStaysWhereItIs() {
+        make()
+        r.setViewport(Viewport(2f, 0.25f, 0.25f))
+        tap(0, 500f, 300f, 60)
+        lift()
+        assertThat(r.viewport.top).isWithin(1e-6f).of(0.25f)
+    }
+
+    @Test
+    fun aSlowTapJustAboveTheKeyRowStaysAClickAndMovesNothing() {
+        make()
+        lift()
+        touch(Kind.DOWN, 0, 500f to 980f)
+        touch(Kind.UP, 200, 500f to 980f)
+        at(1000)
+        assertThat(actions()).containsExactly("Move", "Down", "Up").inOrder()
+        assertThat(r.viewport).isEqualTo(Viewport())
+    }
+
+    @Test
+    fun withNothingTappedOpeningTheKeyboardMovesNothing() {
+        make()
+        lift()
+        assertThat(r.viewport).isEqualTo(Viewport())
+    }
+
+    @Test
+    fun theRadialMenusPointIsWhatTheKeyboardLifts() {
+        make(map = TouchMap.defaults(TouchMode.DIRECT).with(Gesture.LONG_PRESS, GestureAction.RadialMenu))
+        tap(0, 500f, 300f, 60)
+        touch(Kind.DOWN, 1000, 500f to 1600f)
+        at(1000 + GestureRecognizer.LONG_PRESS)
+        touch(Kind.UP, 1600, 500f to 1600f)
+        lift()
+        assertThat(r.toVideo(500f, 900f).second).isWithin(1e-5f).of(0.8f)
+    }
+
+    @Test
+    fun theTrackpadCursorIsWhatTheKeyboardLiftsAndTheMacsStaysPut() {
+        make(TouchMode.TRACKPAD, noLongPress)
+        r.setCursor(0.5f, 0.95f)
+        lift()
+        assertThat(r.toVideo(500f, 900f).second).isWithin(1e-5f).of(0.95f)
+        assertThat(sent).isEmpty()
+    }
+
+    @Test
+    fun closingTheKeyboardBringsBackTheViewItFound() {
+        make()
+        tap(0, 500f, 1800f, 60)
+        lift()
+        take(r.panBy(0f, -300f))
+        take(r.dropKeyboard(noKeyboard))
+        assertThat(r.viewport).isEqualTo(Viewport())
+    }
+
+    @Test
+    fun aZoomMadeWithTheKeyboardUpStaysWhenItCloses() {
+        make()
+        lift()
+        r.setViewport(Viewport(2f, 0.25f, 0.4f))
+        take(r.dropKeyboard(noKeyboard))
+        assertThat(r.viewport).isEqualTo(Viewport(2f, 0.25f, 0.4f))
+    }
+
+    @Test
+    fun aSecondLiftForANewScreenStillClosesBackToTheFirstView() {
+        make()
+        r.setViewport(Viewport(2f, 0.25f, 0.1f))
+        tap(0, 500f, 1800f, 60)
+        lift()
+        take(r.liftKeyboard(Placement(1000f, 2000f, visibleH = 1400f), 40f))
+        take(r.dropKeyboard(noKeyboard))
+        assertThat(r.viewport).isEqualTo(Viewport(2f, 0.25f, 0.1f))
+    }
+
+    @Test
+    fun openingTheKeyboardKeepsAZoomThatFillsTheScreen() {
+        make()
+        val tall = Placement(1000f, 200f, 1000f, 1000f, 0f, 400f)
+        r.setViewSize(tall)
+        r.setViewport(Viewport(5f))
+        take(r.liftKeyboard(tall.copy(visibleH = 600f), 40f))
+        take(r.dropKeyboard(tall))
+        assertThat(r.viewport.zoom).isEqualTo(5f)
+    }
+
+    @Test
+    fun fillScreenGoingBackToOneTimesWithTheKeyboardUpLiftsTheTappedPointAgain() {
+        make()
+        tap(0, 500f, 1800f, 60)
+        lift()
+        take(r.panBy(0f, 500f))
+        take(r.fillScreen(0.5f, 0.5f))
+        assertThat(r.viewport.top).isWithin(1e-6f).of(0.45f)
+    }
+
+    @Test
+    fun theKeyRowsDragMovesThePictureAsFarAsTheKeyboardAllowsAndSendsNothing() {
+        make()
+        lift()
+        take(r.panBy(0f, -200f))
+        assertThat(r.viewport.top).isWithin(1e-6f).of(0.1f)
+        take(r.panBy(0f, -5000f))
+        assertThat(r.viewport.top).isWithin(1e-6f).of(0.5f)
+        take(r.panBy(0f, 5000f))
+        assertThat(r.viewport.top).isEqualTo(0f)
+        assertThat(sent).isEmpty()
+    }
+
+    @Test
+    fun withTheKeyboardDownTheKeyRowsDragHasNothingToMove() {
+        make()
+        take(r.panBy(0f, -200f))
+        assertThat(r.viewport).isEqualTo(Viewport())
+    }
+
+    @Test
+    fun aTrackpadCursorLeftAboveThePictureComesBackInsideAfterADrag() {
+        make(TouchMode.TRACKPAD, noLongPress)
+        r.setCursor(0.5f, 0.1f)
+        lift()
+        take(r.panBy(0f, -1000f))
+        val move = pointers(PointerAction.Move).last()
+        // The visible half now runs from 0.5 to 1; the band takes its first tenth.
+        assertThat(move.y).isWithin(1e-5f).of(0.55f)
+    }
+
+    @Test
+    fun aDirectDragNearTheKeyRowMovesThePictureAtOneTimes() {
+        make()
+        lift()
+        touch(Kind.DOWN, 0, 500f to 500f)
+        touch(Kind.MOVE, 20, 500f to 990f)
+        at(400)
+        assertThat(r.viewport.top).isGreaterThan(0f)
+        assertThat(pointers(PointerAction.Drag)).isNotEmpty()
+    }
+
+    @Test
+    fun theTrackpadCursorReachingTheKeyRowMovesThePicture() {
+        make(TouchMode.TRACKPAD, noLongPress)
+        r.setCursor(0.5f, 0.2f)
+        lift()
+        touch(Kind.DOWN, 0, 500f to 200f)
+        for (i in 1..20) touch(Kind.MOVE, i * 16L, 500f to 200f + i * 40f)
+        assertThat(r.viewport.top).isGreaterThan(0f)
+    }
+
+    @Test
+    fun threeFingersInTheDirectModeMoveThePictureAndSendNothing() {
+        make()
+        lift()
+        threeDown()
+        threeMove(60, 0f, -30f)
+        threeMove(100, 0f, -230f)
+        touch(Kind.UP, 200, 500f to 770f)
+        at(1000)
+        assertThat(r.viewport.top).isWithin(1e-6f).of(230f / 2000f)
+        assertThat(actions().filter { it != "Move" }).isEmpty()
+        assertThat(commands).isEmpty()
+    }
+
+    @Test
+    fun threeFingersPanAZoomedPictureSidewaysToo() {
+        make()
+        r.setViewport(Viewport(2f, 0.25f, 0.25f))
+        threeDown()
+        threeMove(60, -30f, 0f)
+        threeMove(100, -230f, 0f)
+        assertThat(r.viewport.left).isWithin(1e-6f).of(0.25f + 230f / 2000f)
+    }
+
+    @Test
+    fun threeFingersStillTapWhenThePictureCanMove() {
+        make(shared = mapOf(Gesture.THREE_FINGER_TAP to item(RadialItem.MUTE)))
+        lift()
+        threeDown()
+        touch(Kind.UP, 100, 500f to 1000f)
+        assertThat(commands).containsExactly(RadialEntry.Builtin(RadialItem.MUTE))
     }
 
     // MARK: fill screen
@@ -1443,8 +1672,8 @@ class GestureRecognizerTest {
     }
 
     @Test
-    fun threeFingersMovingInTheDirectModeDoNothing() {
-        for (row in listOf(GestureAction.Drag, GestureAction.None)) {
+    fun threeFingersMovingInTheDirectModeSendNothing() {
+        for (row in listOf(GestureAction.Drag, GestureAction.Pan, GestureAction.None)) {
             make(TouchMode.DIRECT, map = TouchMap.defaults(TouchMode.DIRECT).with(Gesture.THREE_FINGER_DRAG, row))
             threeDown()
             threeMove(60, 0f, 30f)

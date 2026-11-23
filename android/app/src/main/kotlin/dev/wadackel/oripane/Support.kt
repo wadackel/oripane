@@ -67,15 +67,19 @@ class Prefs(context: Context) {
      * press that grabs into the radial menu, its new default, for the same reason; a grab chosen by
      * hand looks the same in storage, so it changes too, and the other rows stay. Version 3 moves
      * the four-finger swipes and the three-finger tap, which both modes shared, into each mode's map.
+     * Version 4 turns the direct map's stored three-finger drag from nothing into moving the view, its
+     * new default: the direct mode had no row for it, so a stored nothing was never chosen.
      */
     fun migrate() {
         val version = runCatching { sp.getInt(SETTINGS_VERSION, 0) }.getOrDefault(0)
-        if (version >= 3) return
+        if (version >= 4) return
         fun stored(key: String) = runCatching { sp.getString(key, null)?.let(::JSONObject) }.getOrNull()
         val e = sp.edit()
-        // Each step works on the trackpad map as the step before left it; the result is written once.
+        // Each step works on the maps as the step before left them; the result is written once.
         var trackpad = stored(SettingKeys.MAP_TRACKPAD)
         var trackpadChanged = false
+        var direct = stored(SettingKeys.MAP_DIRECT)
+        var directChanged = false
         if (version < 1) {
             trackpad = null
             trackpadChanged = true
@@ -84,24 +88,30 @@ class Prefs(context: Context) {
             trackpadChanged = true
         }
         stored(SHARED_ROWS_V2)?.let { mac ->
-            val direct = stored(SettingKeys.MAP_DIRECT) ?: JSONObject()
+            val shared = direct ?: JSONObject()
             val moved = trackpad ?: JSONObject()
             for ((old, row) in sharedRowsV2) {
                 val value = mac.opt(old) as? String ?: continue
-                direct.put(row.key, value)
+                shared.put(row.key, value)
                 moved.put(row.key, value)
             }
-            e.putString(SettingKeys.MAP_DIRECT, direct.toString())
+            direct = shared
+            directChanged = true
             trackpad = moved
             trackpadChanged = true
         }
         e.remove(SHARED_ROWS_V2)
+        if (version < 4 && direct?.optString(Gesture.THREE_FINGER_DRAG.key) == GestureAction.None.key) {
+            direct.put(Gesture.THREE_FINGER_DRAG.key, GestureAction.Pan.key)
+            directChanged = true
+        }
+        if (directChanged) direct?.let { e.putString(SettingKeys.MAP_DIRECT, it.toString()) }
         if (trackpadChanged) {
             val map = trackpad
             if (map == null) e.remove(SettingKeys.MAP_TRACKPAD) else e.putString(SettingKeys.MAP_TRACKPAD, map.toString())
         }
-        e.putInt(SETTINGS_VERSION, 3).apply()
-        log("settings migrated from=$version to=3")
+        e.putInt(SETTINGS_VERSION, 4).apply()
+        log("settings migrated from=$version to=4")
     }
 
     var savedMacs: List<SavedMac>

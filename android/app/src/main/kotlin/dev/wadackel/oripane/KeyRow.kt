@@ -1,12 +1,16 @@
 /**
- * The bar above the soft keyboard: the composition being typed, and the modifier and special keys.
+ * The bar above the soft keyboard: the composition being typed, and the modifier and special keys,
+ * whose row also drags the picture up and down.
  */
 package dev.wadackel.oripane
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -30,7 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -60,6 +66,11 @@ private val specialKeys = listOf(
 )
 
 private const val KEY_REPEAT_AFTER_MS = 400L
+/** The composition strip over the key row; the picture keeps this much room above the row for it. */
+internal val PREEDIT_HEIGHT = 40.dp
+/** Inside the row's top padding, clear of the keys. */
+private val GRIP_WIDTH = 28.dp
+private val GRIP_HEIGHT = 3.dp
 private const val KEY_REPEAT_EVERY_MS = 50L
 
 /**
@@ -84,7 +95,7 @@ fun PreeditBar(text: String, cursor: Int, modifier: Modifier = Modifier) {
     Box(
         modifier
             .fillMaxWidth()
-            .height(40.dp)
+            .height(PREEDIT_HEIGHT)
             .blocksTouches()
             .background(Palette.surface1)
             .drawBehind {
@@ -117,7 +128,9 @@ fun PreeditBar(text: String, cursor: Int, modifier: Modifier = Modifier) {
 
 /**
  * The modifier and special keys above the soft keyboard. The keys take taps without taking focus:
- * the field losing focus would close the keyboard.
+ * the field losing focus would close the keyboard. The row is also the picture's handle: dragged up
+ * or down, it moves the picture by the finger's travel ([onDrag]), as a sideways drag scrolls the
+ * keys; the grip on its top edge says so.
  */
 @Composable
 fun KeyRow(
@@ -127,17 +140,24 @@ fun KeyRow(
     onKey: (Int, Boolean) -> Unit,
     /** A held key was let go. */
     onKeyReleased: () -> Unit,
+    /** The row was dragged vertically by this many pixels, down positive. */
+    onDrag: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val drag by rememberUpdatedState(onDrag)
     Row(
         modifier
             .fillMaxWidth()
             .background(Palette.surface1)
-            // Only the top edge has a border, drawn outside the scroll so it does not move with the keys.
+            // The top edge's border and the grip are drawn outside the scroll so they do not move with the keys.
             .drawBehind {
                 val w = 1.dp.toPx()
                 drawLine(Palette.highlight, Offset(0f, w / 2), Offset(size.width, w / 2), w)
+                val grip = Size(GRIP_WIDTH.toPx(), GRIP_HEIGHT.toPx())
+                drawRoundRect(Palette.textFaint, Offset((size.width - grip.width) / 2, w), grip, CornerRadius(grip.height / 2))
             }
+            // Ahead of the scroll: each takes only a drag along its own axis, and a key under either is not pressed.
+            .draggable(rememberDraggableState { drag(it) }, Orientation.Vertical)
             .horizontalScroll(rememberScrollState())
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
