@@ -89,9 +89,8 @@ class DocsScreenshotTest {
     }
 
     @Test
-    fun heroShowsTheMacOnTheFoldInEitherTheme() {
-        save(DocsArt.hero(DocsArt.light), "hero-light")
-        save(DocsArt.hero(DocsArt.dark), "hero-dark")
+    fun heroShowsTheMacOnTheFoldOnWhite() {
+        save(DocsArt.hero(), "hero")
     }
 
     @Test

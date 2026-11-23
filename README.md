@@ -16,10 +16,7 @@
 </div>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-    <img src="docs/images/hero-light.png" width="100%" alt="An open Galaxy Z Fold in front of a MacBook, showing the same desktop as the Mac">
-  </picture>
+  <img src="docs/images/hero.png" width="100%" alt="An open Galaxy Z Fold in front of a MacBook, showing the same desktop as the Mac">
 </p>
 
 > [!NOTE]

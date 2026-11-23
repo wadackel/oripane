@@ -79,8 +79,8 @@ Only a local `tools/test` compares the screenshots in `android/app/src/test/scre
 ## Documentation screenshots
 
 The images in `docs/images/` are rendered by a unit test, `DocsScreenshotTest`, on the JVM through
-Robolectric's native graphics. The line drawing at the top of the README, one image for GitHub's
-light theme and one for its dark theme, and the social preview (`social-preview.png`, 1280 × 640)
+Robolectric's native graphics. The line drawing at the top of the README, one image on white for
+both of GitHub's themes, and the social preview (`social-preview.png`, 1280 × 640)
 are drawn on a canvas (`DocsArt` in the app's tests). The feature pictures are the app's own
 screens with fixed sample data; the Mac on them is a desktop drawn from shapes (`MacDesktop`) in
 place of the video. No emulator, host or real desktop is involved, and they come out the same on
