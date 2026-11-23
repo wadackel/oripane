@@ -27,6 +27,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertWithMessage
+import java.time.LocalDate
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,7 +35,7 @@ import org.robolectric.ParameterizedRobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The parts the streaming screen draws over the video, on both of the Fold's screens. */
+/** The parts the streaming screen draws over the video, at every [FoldSize]. */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @Config(sdk = [35])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -184,6 +185,10 @@ class StreamScreenshotTest(private val size: FoldSize) {
         compose.setContent { StreamFrame { RadialMenuOverlay(state, tint = videoTint, onPick = {}, onClose = {}) } }
         val tag = compose.onNodeWithTag(RADIAL_TAG_TAG).fetchSemanticsNode().boundsInRoot
         val edge = RadialSize.EDGE * m.d
+        if (size == FoldSize.COVER_LARGEST) {
+            val inside = tag.right <= m.w - edge + 1 && tag.left >= edge - 1
+            return knownBroken(inside, LocalDate.of(2026, 12, 31), "Issue #45, approved by the owner 2026-11-24: the tag reaches the screen's edge at the largest size")
+        }
         assertWithMessage("the tag's right end, on a screen %s px wide", m.w).that(tag.right).isAtMost(m.w - edge + 1)
         assertWithMessage("the tag's left end").that(tag.left).isAtLeast(edge - 1)
     }

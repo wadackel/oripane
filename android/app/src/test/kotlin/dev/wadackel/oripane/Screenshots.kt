@@ -5,8 +5,8 @@
  * The baselines are the PNGs in `android/app/src/test/screenshots/`, and for [DocsScreenshotTest]
  * the README's images in `docs/images/`. A local `tools/test` compares every shot with its
  * baseline pixel by pixel and fails on any difference. CI, whose machines render text differently,
- * runs the same tests without capturing: only the compositions, clicks and scrolls are exercised
- * there.
+ * runs the same tests without capturing: the compositions, clicks and scrolls are exercised there,
+ * and so is every shot's check that text stays whole ([assertTextWhole]).
  *
  * After an intended change to how something looks, record the baselines again from `android/` and
  * commit them in the same pull request:
@@ -48,24 +48,37 @@ import org.robolectric.RuntimeEnvironment
 /**
  * The owner's Fold's two screens, both 420 dpi: the inner one open (2448x1848) and the cover one
  * (1248x1972). Qualifiers take whole dp, so a shot may be a pixel or two off the real screen.
+ * The last two are the same screens at the largest system font size (2.0), the cover one also at
+ * about 1.45 times the display size (609 dpi; at 840 nearly every label breaks): they take no
+ * picture, and only check that text stays whole.
  */
-enum class FoldSize(val qualifiers: String) {
+enum class FoldSize(val qualifiers: String, val fontScale: Float = 1f, val pictures: Boolean = true) {
     INNER("en-rUS-w933dp-h704dp-land-420dpi"),
     COVER("en-rUS-w475dp-h751dp-port-420dpi"),
+    INNER_LARGEST_FONT("en-rUS-w933dp-h704dp-land-420dpi", fontScale = 2f, pictures = false),
+    COVER_LARGEST("en-rUS-w327dp-h518dp-port-609dpi", fontScale = 2f, pictures = false),
+    ;
+
+    companion object {
+        /** The two screens at the default sizes, for a test about one layout rather than every text. */
+        val screens = listOf(INNER, COVER)
+    }
 }
 
 /**
  * Sets the screen size before the activity starts, and fixes the time zone and the locale that
- * the pages format dates and numbers with; puts all three back afterwards. The qualifiers' locale
+ * the pages format dates and numbers with, and sets the font scale; puts all four back afterwards. The qualifiers' locale
  * does not reach `Locale.getDefault()`, which follows the JVM and can be Japanese on the owner's Mac.
  */
 class FoldScreenRule(private val size: FoldSize) : TestRule {
     override fun apply(base: Statement, description: Description) = object : Statement() {
         override fun evaluate() {
             val qualifiers = RuntimeEnvironment.getQualifiers()
+            val fontScale = RuntimeEnvironment.getFontScale()
             val zone = TimeZone.getDefault()
             val locale = Locale.getDefault()
             RuntimeEnvironment.setQualifiers(size.qualifiers)
+            RuntimeEnvironment.setFontScale(size.fontScale)
             TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
             Locale.setDefault(Locale.US)
             try {
@@ -73,6 +86,7 @@ class FoldScreenRule(private val size: FoldSize) : TestRule {
             } finally {
                 Locale.setDefault(locale)
                 TimeZone.setDefault(zone)
+                RuntimeEnvironment.setFontScale(fontScale)
                 RuntimeEnvironment.setQualifiers(qualifiers)
             }
         }
@@ -89,12 +103,15 @@ internal val exact = RoborazziOptions(
 )
 
 /**
- * Captures the whole screen as `<name>_<size>.png`. The screen rather than the compose root,
- * because sheets and dialogs draw in windows of their own.
+ * Checks that every text on screen is whole ([assertTextWhole]), then captures the whole screen as
+ * `<name>_<size>.png` for a size that takes [FoldSize.pictures]. The screen rather than the compose
+ * root, because sheets and dialogs draw in windows of their own.
  */
 @OptIn(ExperimentalRoborazziApi::class)
 fun ComposeContentTestRule.shot(name: String, size: FoldSize) {
     waitForIdle()
+    assertTextWhole("${name}_${size.name.lowercase()}")
+    if (!size.pictures) return
     captureScreenRoboImage("src/test/screenshots/${name}_${size.name.lowercase()}.png", roborazziOptions = exact)
 }
 

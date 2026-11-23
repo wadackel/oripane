@@ -53,6 +53,6 @@ class HomeTilesLayoutTest(private val size: FoldSize) {
     companion object {
         @JvmStatic
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
-        fun sizes() = FoldSize.entries.map { arrayOf<Any>(it) }
+        fun sizes() = FoldSize.screens.map { arrayOf<Any>(it) }
     }
 }
