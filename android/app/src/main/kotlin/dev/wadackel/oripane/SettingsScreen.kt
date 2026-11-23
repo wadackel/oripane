@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 
 /**
@@ -49,8 +53,27 @@ enum class SettingsSection(val key: String, val title: String, @DrawableRes val 
     ABOUT("about", "About", R.drawable.ic_info),
 }
 
-/** A screen at least this wide shows the index and a section side by side. */
+/**
+ * A screen at least this wide counts as wide to Home, which puts its card beside the tiles.
+ * Settings needs more room before it splits: [SPLIT_SETTINGS].
+ */
 val WIDE_SETTINGS = 600.dp
+
+/** The width of Settings' index beside a section. */
+private val SPLIT_INDEX = 330.dp
+
+/**
+ * The narrowest a section's pane gets beside the index: Data saver's three segments and Display
+ * size's two still show their whole labels. A narrower pane cuts them to "Al..." and "Larger ...".
+ */
+private val SPLIT_PANE_MIN = 290.dp
+
+/**
+ * A screen at least this wide shows Settings' index and a section side by side: the index, the
+ * gaps around the pane, and the pane at its narrowest. The Fold's inner screen (704 dp at the
+ * default display size) is wide enough; its cover screen and a narrow split-screen window are not.
+ */
+val SPLIT_SETTINGS = Space.s + SPLIT_INDEX + Space.l + SPLIT_PANE_MIN + Space.l
 
 /** A group of rows on one surface, with its heading when the page has more than one group. */
 class SettingsGroup(val title: String?, val rows: List<@Composable (PaddingValues) -> Unit>)
@@ -183,48 +206,67 @@ private fun sectionGroups(section: SettingsSection, s: Settings, onChange: (Sett
     }
 }
 
+/** A page of Settings on a narrow screen: the index, or one section's page. */
+private sealed interface SettingsPage {
+    data object Index : SettingsPage
+    data class Section(val section: SettingsSection) : SettingsPage
+}
+
 /**
- * Settings: the index ([section] null) or a section's page. Changes are saved at once; there is no
- * save button. On a screen of [WIDE_SETTINGS] or more the index and a section show side by side,
- * and a section picked in the index changes the pane without leaving the page.
+ * Settings: the index and the page of each section. Changes are saved at once; there is no save
+ * button. On a screen of [SPLIT_SETTINGS] or more the index and a section show side by side. The
+ * chosen section, and any sheet, live here above the layout, so a fold, an unfold or a new display
+ * size switches the layout and keeps what the user was looking at. Back leaves a section's page for
+ * the index on a narrow screen; from the index, or from the side-by-side layout, [onBack] leaves
+ * Settings. [initialSection] is the section shown when Settings opens.
  */
 @Composable
 fun SettingsScreen(
     settings: Settings,
-    section: SettingsSection? = null,
+    initialSection: SettingsSection? = null,
     onChange: (Settings) -> Unit,
     onReset: () -> Unit,
-    onSection: (SettingsSection) -> Unit,
     onMap: (TouchMode) -> Unit,
     onRadialMenu: () -> Unit,
     onBack: () -> Unit,
 ) {
+    // Null until a section is picked: the side-by-side layout then shows Video, and a narrow one the index.
+    var section by rememberSaveable { mutableStateOf(initialSection) }
     var confirm by remember { mutableStateOf(false) }
     var touchSheet by remember { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= WIDE_SETTINGS
-        when {
-            wide -> {
-                var shown by rememberSaveable { mutableStateOf(section ?: SettingsSection.VIDEO) }
-                SettingsSplit(
-                    settings,
-                    shown,
-                    onChange = onChange,
-                    onPick = { shown = it },
-                    onRadialMenu = onRadialMenu,
-                    onReset = { confirm = true },
-                    onTouchMode = { touchSheet = true },
-                    onMap = onMap,
-                    onBack = onBack,
-                )
-            }
-            section == null -> Page("Settings", onBack) {
-                SettingsIndex(settings, null, onSection, onRadialMenu) { confirm = true }
-            }
-            else -> Page(section.title, onBack) {
-                if (section == SettingsSection.ABOUT) AboutBody()
-                if (section == SettingsSection.VIDEO) Help(NEXT_CONNECTION, Modifier.padding(bottom = Space.s))
-                SettingsGroups(sectionGroups(section, settings, onChange, { touchSheet = true }, onMap))
+    var aboutSheet by remember { mutableStateOf<AboutSheet?>(null) }
+    LaunchedEffect(section) { section?.let { log("screen name=settings_${it.key}") } }
+    // The side insets are taken here, so the split is judged on the width its pane really gets; the
+    // layouts' own safeDrawing padding then finds them consumed.
+    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+        // BoxWithConstraints composes its content again only when its constraints change, and a new
+        // display size alone leaves them at the same pixels: reading the density here is what
+        // brings the layout along with it, in dp, rather than with the next visit to Settings.
+        val width = with(LocalDensity.current) { constraints.maxWidth.toDp() }
+        if (width >= SPLIT_SETTINGS) {
+            SettingsSplit(
+                settings,
+                section ?: SettingsSection.VIDEO,
+                onChange = onChange,
+                onPick = { section = it },
+                onRadialMenu = onRadialMenu,
+                onReset = { confirm = true },
+                onTouchMode = { touchSheet = true },
+                onAboutSheet = { aboutSheet = it },
+                onMap = onMap,
+                onBack = onBack,
+            )
+        } else {
+            val page = section?.let { SettingsPage.Section(it) } ?: SettingsPage.Index
+            PageStack(page, { if (it is SettingsPage.Section) SettingsPage.Index else null }, onBack = { section = null }) { shown ->
+                when (shown) {
+                    SettingsPage.Index -> Page("Settings", onBack) {
+                        SettingsIndex(settings, null, { section = it }, onRadialMenu) { confirm = true }
+                    }
+                    is SettingsPage.Section -> Page(shown.section.title, { section = null }) {
+                        SectionBody(shown.section, settings, Palette.surface1, onChange, { touchSheet = true }, { aboutSheet = it }, onMap)
+                    }
+                }
             }
         }
     }
@@ -234,6 +276,7 @@ fun SettingsScreen(
             onChange(settings.copy(touchMode = it))
         }
     }
+    aboutSheet?.let { AboutNoticeSheet(it) { aboutSheet = null } }
     if (confirm) {
         ConfirmDialog(
             title = "Reset all settings?",
@@ -243,6 +286,22 @@ fun SettingsScreen(
             onDismiss = { confirm = false },
         )
     }
+}
+
+/** What a section shows under its title, in either layout; [color] is the surface its groups sit on. */
+@Composable
+private fun SectionBody(
+    section: SettingsSection,
+    settings: Settings,
+    color: Color,
+    onChange: (Settings) -> Unit,
+    onTouchMode: () -> Unit,
+    onAboutSheet: (AboutSheet) -> Unit,
+    onMap: (TouchMode) -> Unit,
+) {
+    if (section == SettingsSection.ABOUT) AboutBody(color, onAboutSheet)
+    if (section == SettingsSection.VIDEO) Help(NEXT_CONNECTION, Modifier.padding(bottom = Space.s))
+    SettingsGroups(sectionGroups(section, settings, onChange, onTouchMode, onMap), color)
 }
 
 private const val NEXT_CONNECTION = "Changes apply from the next connection."
@@ -270,11 +329,12 @@ private fun SettingsSplit(
     onRadialMenu: () -> Unit,
     onReset: () -> Unit,
     onTouchMode: () -> Unit,
+    onAboutSheet: (AboutSheet) -> Unit,
     onMap: (TouchMode) -> Unit,
     onBack: () -> Unit,
 ) {
     Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(start = Space.s, end = Space.l, bottom = Space.l), horizontalArrangement = Arrangement.spacedBy(Space.l)) {
-        Column(Modifier.width(330.dp).fillMaxHeight().verticalScroll(rememberScrollState())) {
+        Column(Modifier.width(SPLIT_INDEX).fillMaxHeight().verticalScroll(rememberScrollState())) {
             PageHeader("Settings", onBack)
             Box(Modifier.padding(start = 4.dp)) { Column { SettingsIndex(settings, shown, onPick, onRadialMenu, onReset) } }
         }
@@ -282,9 +342,7 @@ private fun SettingsSplit(
             Modifier.weight(1f).fillMaxHeight().padding(top = 10.dp).clip(RoundedCornerShape(Radius.surface)).background(Palette.surface1).verticalScroll(rememberScrollState()).padding(start = Space.m, end = Space.m, bottom = Space.m),
         ) {
             PageHeader(shown.title, null)
-            if (shown == SettingsSection.ABOUT) AboutBody(Palette.surface2)
-            if (shown == SettingsSection.VIDEO) Help(NEXT_CONNECTION, Modifier.padding(bottom = Space.s))
-            SettingsGroups(sectionGroups(shown, settings, onChange, onTouchMode, onMap), Palette.surface2)
+            SectionBody(shown, settings, Palette.surface2, onChange, onTouchMode, onAboutSheet, onMap)
         }
     }
 }

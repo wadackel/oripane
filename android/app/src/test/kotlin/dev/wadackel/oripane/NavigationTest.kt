@@ -13,12 +13,9 @@ class NavigationTest {
     }
 
     @Test
-    fun theGestureMapGoesBackToTheGesturesPageAndASettingsPageToTheIndex() {
-        assertThat(Screen.Map(TouchMode.DIRECT).parent()).isEqualTo(Screen.SettingsPage(SettingsSection.GESTURES))
-        assertThat(Screen.Map(TouchMode.TRACKPAD).parent()).isEqualTo(Screen.SettingsPage(SettingsSection.GESTURES))
-        for (section in SettingsSection.entries) assertThat(Screen.SettingsPage(section).parent()).isEqualTo(Screen.Settings)
-        // PageStack tells screens apart by their string.
-        assertThat(Screen.SettingsPage(SettingsSection.VIDEO).toString()).isNotEqualTo(Screen.SettingsPage(SettingsSection.TOUCH).toString())
+    fun theGestureMapGoesBackToSettingsWhichKeepsTheGesturesSection() {
+        assertThat(Screen.Map(TouchMode.DIRECT).parent()).isEqualTo(Screen.Settings)
+        assertThat(Screen.Map(TouchMode.TRACKPAD).parent()).isEqualTo(Screen.Settings)
     }
 
     @Test
@@ -35,7 +32,7 @@ class NavigationTest {
         for (mode in TouchMode.entries) {
             assertThat(Screen.GestureShortcut(mode, Gesture.FOUR_FINGER_PINCH, false).parent()).isEqualTo(Screen.Map(mode))
         }
-        assertThat(pageDepth(Screen.GestureShortcut(TouchMode.TRACKPAD, Gesture.TWO_FINGER_LONG_PRESS, true), Screen::parent)).isEqualTo(4)
+        assertThat(pageDepth(Screen.GestureShortcut(TouchMode.TRACKPAD, Gesture.TWO_FINGER_LONG_PRESS, true), Screen::parent)).isEqualTo(3)
         assertThat(Screen.GestureShortcut(TouchMode.TRACKPAD, Gesture.TWO_FINGER_LONG_PRESS, false).toString())
             .isNotEqualTo(Screen.GestureShortcut(TouchMode.DIRECT, Gesture.TWO_FINGER_LONG_PRESS, false).toString())
     }
@@ -44,19 +41,19 @@ class NavigationTest {
     fun depthCountsTheStepsBackToTheTop() {
         assertThat(pageDepth(Screen.Connections, Screen::parent)).isEqualTo(0)
         assertThat(pageDepth(Screen.Settings, Screen::parent)).isEqualTo(1)
-        assertThat(pageDepth(Screen.Map(TouchMode.DIRECT), Screen::parent)).isEqualTo(3)
+        assertThat(pageDepth(Screen.Map(TouchMode.DIRECT), Screen::parent)).isEqualTo(2)
     }
 
     @Test
     fun goingBackLeavesOnlyThePageGoneBackFrom() {
-        assertThat(pagesLeft(Screen.Map(TouchMode.DIRECT), Screen.SettingsPage(SettingsSection.GESTURES), Screen::parent))
+        assertThat(pagesLeft(Screen.Map(TouchMode.DIRECT), Screen.Settings, Screen::parent))
             .containsExactly(Screen.Map(TouchMode.DIRECT))
     }
 
     @Test
     fun goingBackTwoStepsLeavesBothPagesOnTheWay() {
         assertThat(pagesLeft(Screen.Map(TouchMode.DIRECT), Screen.Connections, Screen::parent))
-            .containsExactly(Screen.Map(TouchMode.DIRECT), Screen.SettingsPage(SettingsSection.GESTURES), Screen.Settings)
+            .containsExactly(Screen.Map(TouchMode.DIRECT), Screen.Settings)
     }
 
     @Test
@@ -68,7 +65,7 @@ class NavigationTest {
     @Test
     fun movingToAnotherBranchLeavesThePagesOffItsPath() {
         assertThat(pagesLeft(Screen.Map(TouchMode.DIRECT), Screen.Detail("studio"), Screen::parent))
-            .containsExactly(Screen.Map(TouchMode.DIRECT), Screen.SettingsPage(SettingsSection.GESTURES), Screen.Settings)
+            .containsExactly(Screen.Map(TouchMode.DIRECT), Screen.Settings)
     }
 
     @Test

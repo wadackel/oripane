@@ -11,8 +11,8 @@ sealed interface Screen {
     data object Connections : Screen { override val logName = "connections" }
     data object Add : Screen { override val logName = "add" }
     data class Detail(val hostId: String) : Screen { override val logName = "detail" }
+    /** Settings, which keeps which of its sections is shown itself: see [SettingsScreen]. */
     data object Settings : Screen { override val logName = "settings" }
-    data class SettingsPage(val section: SettingsSection) : Screen { override val logName = "settings_${section.key}" }
     data class Map(val mode: TouchMode) : Screen { override val logName = "map_${mode.key}" }
     data object RadialMenu : Screen { override val logName = "radial_menu" }
 
@@ -30,8 +30,7 @@ sealed interface Screen {
 fun Screen.parent(): Screen? = when (this) {
     Screen.Connections -> null
     Screen.Add, is Screen.Detail, Screen.Settings -> Screen.Connections
-    is Screen.SettingsPage, Screen.RadialMenu -> Screen.Settings
-    is Screen.Map -> Screen.SettingsPage(SettingsSection.GESTURES)
+    Screen.RadialMenu, is Screen.Map -> Screen.Settings
     is Screen.RadialShortcut -> Screen.RadialMenu
     is Screen.GestureShortcut -> Screen.Map(mode)
 }

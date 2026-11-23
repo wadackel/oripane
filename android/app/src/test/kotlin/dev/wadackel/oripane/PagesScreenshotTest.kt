@@ -4,6 +4,7 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
@@ -123,7 +124,7 @@ class PagesScreenshotTest(private val size: FoldSize) {
 
     @Composable
     private fun settings(section: SettingsSection?) {
-        SettingsScreen(Settings.defaults, section, onChange = {}, onReset = {}, onSection = {}, onMap = {}, onRadialMenu = {}, onBack = {})
+        SettingsScreen(Settings.defaults, section, onChange = {}, onReset = {}, onMap = {}, onRadialMenu = {}, onBack = {})
     }
 
     @Test
@@ -137,18 +138,12 @@ class PagesScreenshotTest(private val size: FoldSize) {
     @Test
     fun settingsSectionPages() {
         var section by mutableStateOf(SettingsSection.VIDEO)
-        compose.setContent { PageFrame { settings(section) } }
-        // About is shot on its own below: on the wide screen the pane keeps the section it opened with.
-        SettingsSection.entries.filter { it != SettingsSection.ABOUT }.forEach {
+        // Keyed, because Settings takes its section only as it opens.
+        compose.setContent { PageFrame { key(section) { settings(section) } } }
+        SettingsSection.entries.forEach {
             section = it
             shot("settings_${it.key}")
         }
-    }
-
-    @Test
-    fun aboutPage() {
-        compose.setContent { PageFrame { settings(SettingsSection.ABOUT) } }
-        shot("settings_about")
     }
 
     @Test
