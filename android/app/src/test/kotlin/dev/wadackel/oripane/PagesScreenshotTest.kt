@@ -1,18 +1,30 @@
 package dev.wadackel.oripane
 
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
@@ -272,9 +284,30 @@ class PagesScreenshotTest(private val size: FoldSize) {
     }
 
     @Test
+    fun theShortcutPageNamesTheKeyRowOnceAndOnlyTheButtonSave() {
+        shortcut(initial = custom.copy(code = KeyEvent.KEYCODE_W, name = null), edit = true)
+        compose.onNodeWithText("Key").assertExists()
+        compose.onAllNodesWithText("W").assertCountEquals(1)
+        compose.onAllNodes(hasText("Save") or hasContentDescription("Save")).assertCountEquals(1)
+        compose.onNodeWithContentDescription("Save icon").assertExists()
+    }
+
+    @Test
+    fun theShortcutNameCountsAndStopsAtTwentyFourCharactersAsSeen() {
+        shortcut(initial = null, edit = false)
+        val field = compose.onNode(hasSetTextAction())
+        field.performTextInput("👨‍👩‍👧👍🏽")
+        compose.onNodeWithText("2 / 24").assertExists()
+        field.performTextClearance()
+        field.performTextInput("😀".repeat(30))
+        compose.onNodeWithText("24 / 24").assertExists()
+        field.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("😀".repeat(24))))
+    }
+
+    @Test
     fun keySheetToItsEnd() {
         shortcut(initial = null, edit = false)
-        compose.onNodeWithText("Choose a key").performClick()
+        compose.onNodeWithText("Key").performClick()
         shot("radial_shortcut_key_sheet")
         compose.onNodeWithContentDescription(radialKeys.last().spoken).performScrollTo()
         shot("radial_shortcut_key_sheet_end")
