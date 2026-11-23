@@ -86,7 +86,9 @@ one.
 - **Secondary actions:** round grey 36 dp buttons with a 44 dp touch target (`RoundButton`): back,
   settings, details, add. A secondary action with words is a grey pill (`SecondaryButton`).
 - **Controls side by side share a height:** the display-mode control beside Connect is 44 dp, as
-  Connect is.
+  Connect is. Large text makes its segments taller rather than cut the drawing or the name, and
+  when the three names no longer fit side by side the segments stack, one above another, beside
+  Connect: a mode's name is never split inside the word.
 - **Danger:** something that cannot be undone sits on a surface of its own at the end of the page,
   red words and a red icon (`DangerButton`), and asks first (`ConfirmDialog`: the confirming word
   red, Cancel plain).
@@ -135,7 +137,8 @@ editor are pages.
   The header holds the mark and the wordmark, then Add a Mac and Settings as round grey buttons.
 - **Card:** the Mac's kind icon in a 44 dp square, its name (22) and its state (a dot and 12 sp
   words), a details button; then the display mode (three segments with a small drawing and the
-  mode's name, 44 dp) and the white round Connect with the arrow-into-a-frame icon.
+  mode's name, 44 dp at the default sizes; taller or stacked at large ones, as Buttons and
+  controls says) and the white round Connect with the arrow-into-a-frame icon.
 - **The card's colour:** the colour of the last frame seen from that Mac, kept on the phone when a
   session ends (`SavedMac.tint`), washed in from the card's top-left corner. A Mac never streamed
   from, or whose last frame had no colour to speak of, stays grey.
