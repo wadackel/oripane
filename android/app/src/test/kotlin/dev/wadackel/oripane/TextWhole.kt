@@ -117,21 +117,24 @@ private fun problem(node: SemanticsNode, layout: TextLayoutResult): String? {
     }
     // In the window's coordinates, which the window's edge cuts too: the text may show all of itself
     // but what a scrolling container around it leaves out of view.
-    val whole = Rect(node.positionInWindow, node.size.toSize())
-    val inView = node.scroller()?.let { whole.intersect(it.boundsInWindow) } ?: whole
+    val inView = node.inView(Rect(node.positionInWindow, node.size.toSize()))
     if (inView.width <= 0f || inView.height <= 0f) return null
     val shown = node.boundsInWindow
     val cut = shown.width < inView.width - SLACK_PX || shown.height < inView.height - SLACK_PX
     return if (cut) "cut off by a box around it or the screen's edge: %.0fx%.0f in view shows %.0fx%.0f".format(inView.width, inView.height, shown.width, shown.height) else null
 }
 
-private fun SemanticsNode.scroller(): SemanticsNode? {
+/** [whole] narrowed by every scrolling ancestor along the axis it scrolls: across it, a scroller hides nothing that scrolling would bring back. */
+private fun SemanticsNode.inView(whole: Rect): Rect {
+    var r = whole
     var n: SemanticsNode? = parent
     while (n != null) {
-        if (SemanticsProperties.VerticalScrollAxisRange in n.config || SemanticsProperties.HorizontalScrollAxisRange in n.config) return n
+        val b = n.boundsInWindow
+        if (SemanticsProperties.VerticalScrollAxisRange in n.config) r = Rect(r.left, maxOf(r.top, b.top), r.right, minOf(r.bottom, b.bottom))
+        if (SemanticsProperties.HorizontalScrollAxisRange in n.config) r = Rect(maxOf(r.left, b.left), r.top, minOf(r.right, b.right), r.bottom)
         n = n.parent
     }
-    return null
+    return r
 }
 
 /** Layout rounds a box to whole pixels; a text a pixel past its box is not visibly cut. */
