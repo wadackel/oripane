@@ -326,7 +326,8 @@ private fun DisplayModeControl(mode: String, onMode: (String) -> Unit, modifier:
         modifier = modifier.clip(RoundedCornerShape(Radius.inner)).background(Palette.well).padding(3.dp).selectableGroup(),
     ) { segments, constraints ->
         val gap = 3.dp.roundToPx()
-        val least = (Sizes.primary - 6.dp).roundToPx()
+        // Rounded as height(44.dp) and padding(3.dp) each were, so it matches Connect to the pixel.
+        val least = Sizes.primary.roundToPx() - 2 * gap
         val gaps = gap * (segments.size - 1)
         val widest = segments.maxOf { it.maxIntrinsicWidth(Constraints.Infinity) }
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else widest * segments.size + gaps
