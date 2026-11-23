@@ -42,6 +42,11 @@ import kotlin.math.pow
  * finger closes the menu; in the trackpad mode it then arms a grab, as a long press that grabs
  * would have, and in the direct mode the touch does nothing until every finger lifts.
  *
+ * While the soft keyboard is up, the screen ends at its key row ([liftKeyboard]): the picture moves
+ * up so the point being typed at shows above it, and every pan, follow and edge band above works in
+ * that shorter screen. [panBy] moves the picture without sending anything, for the key row's drag;
+ * in the direct mode three fingers do the same when the map says so.
+ *
  * In the trackpad mode a touch that lands on a scroll band scrolls instead: on the [strip], the
  * band down a side edge, its finger's vertical travel goes out as scroll, and on [stripX], the band
  * along the bottom, its horizontal travel; geared up as the bands are short, and every other finger
@@ -178,6 +183,12 @@ class GestureRecognizer(
     private var flingAt = 0L
     private var flingVx = 0f
     private var flingVy = 0f
+    /** In the direct mode, the video point last tapped or where the radial menu last opened: what the keyboard lifts into view. */
+    private var anchor: Pair<Float, Float>? = null
+    /** The viewport as the keyboard came up, to go back to when it goes; null while it is down. */
+    private var beforeKeyboard: Viewport? = null
+    /** The room kept above the key row while the keyboard is up; null while it is down. */
+    private var keyboardMargin: Float? = null
 
     /** A screen the size of the frame. */
     fun setViewSize(widthPx: Int, heightPx: Int) = setViewSize(Placement(widthPx.toFloat(), heightPx.toFloat()))
@@ -190,6 +201,66 @@ class GestureRecognizer(
 
     fun setViewport(v: Viewport) {
         viewport = v.clamped(placement)
+    }
+
+    /**
+     * The soft keyboard came up, or the screen changed under it: [p] ends at its key row. The point
+     * being typed at, the trackpad cursor or the direct mode's [anchor], moves up just far enough to
+     * show at least [margin] pixels above the key row, the room the composition strip takes, and
+     * clear of the edge band, where the trackpad cursor would pull the picture on; with no such point
+     * the viewport is only kept inside the shorter screen.
+     */
+    fun liftKeyboard(p: Placement, margin: Float): Output = withViewport {
+        if (beforeKeyboard == null) beforeKeyboard = viewport
+        keyboardMargin = margin
+        placement = p
+        lift(margin)
+    }
+
+    private fun lift(margin: Float) {
+        val p = placement
+        val full = p.withoutKeyboard()
+        val v = viewport.clamped(full)
+        val at = if (mode == TouchMode.TRACKPAD) cursorX to cursorY else anchor
+        if (at == null || full.frameH <= 0f) {
+            viewport = v.clamped(p)
+            return
+        }
+        val y = full.y.toPixel(at.second, v.zoom, v.top)
+        val target = min(y, p.y.visibleEnd - p.y.offset - max(margin, EDGE_BAND * p.y.visibleEnd))
+        viewport = v.copy(top = p.y.startFor(at.second, target, v.zoom)).clamped(p)
+    }
+
+    /** The soft keyboard went: the viewport it found comes back, unless the zoom changed while it was up. */
+    fun dropKeyboard(p: Placement): Output = withViewport {
+        val before = beforeKeyboard
+        beforeKeyboard = null
+        keyboardMargin = null
+        placement = p
+        viewport = (if (before != null && before.zoom == viewport.zoom) before else viewport).clamped(p)
+    }
+
+    /**
+     * Moves the picture with a finger's travel of ([dx], [dy]) pixels, as far as the placement
+     * allows, and sends nothing; a trackpad cursor left outside the edge band comes just inside,
+     * as after a pinch, or its next move would pull the picture back to it.
+     */
+    fun panBy(dx: Float, dy: Float): Output = withViewport { out ->
+        moveView(dx, dy)
+        if (mode == TouchMode.TRACKPAD) cursorInsideBand(out)
+    }
+
+    private fun moveView(dx: Float, dy: Float) {
+        if (placement.frameW <= 0f || placement.frameH <= 0f) return
+        val v = viewport
+        viewport = v.copy(left = v.left - dx / (v.zoom * placement.frameW), top = v.top - dy / (v.zoom * placement.frameH)).clamped(placement)
+    }
+
+    /** A new recognizer for a new touch mode takes over what the keyboard left: the view to go back to and the point it lifted. */
+    fun takeKeyboardFrom(old: GestureRecognizer) {
+        beforeKeyboard = old.beforeKeyboard
+        keyboardMargin = old.keyboardMargin
+        anchor = old.anchor
     }
 
     /** A point in pixels from the frame's top-left to the video under it. */
@@ -419,8 +490,10 @@ class GestureRecognizer(
         when {
             pressed -> {
                 out += pointer(PointerAction.Up, x, y)
-                // A short unmoved press that only the timer made is still a tap for a double click.
-                lastTap = if (pressedByTimer && !moved && time - downAt < TAP_MAX) Tap(time, downX, downY, click = true) else null
+                // A short unmoved press that only the timer made is still a tap for a double click, and for the keyboard's lift.
+                val tapped = pressedByTimer && !moved && time - downAt < TAP_MAX
+                lastTap = if (tapped) Tap(time, downX, downY, click = true) else null
+                if (tapped && mode == TouchMode.DIRECT) anchor = x to y
             }
             !moved && time - downAt < TAP_MAX -> {
                 // A tap that sends nothing keeps its travel: it moved the cursor and did nothing else.
@@ -434,6 +507,7 @@ class GestureRecognizer(
 
     /** A tap that ended an ordinary touch, at the touched point or the cursor. */
     private fun tap(time: Long, out: MutableList<InputEvent>) {
+        if (mode == TouchMode.DIRECT) anchor = tapX() to tapY()
         tapAction(tapX(), tapY(), continuesClick, out)
         lastTap = Tap(time, downX, downY, click = map[Gesture.TAP] == GestureAction.Click)
     }
@@ -656,10 +730,12 @@ class GestureRecognizer(
     private fun fill(videoX: Float, videoY: Float, out: MutableList<InputEvent>) {
         val v = viewport
         val fill = placement.fillZoom
-        viewport = if (v.zoom < fill - FILL_SLACK) {
-            zoomedAbout(videoX, videoY, placement.x.toPixel(videoX, v.zoom, v.left), placement.y.toPixel(videoY, v.zoom, v.top), fill)
+        if (v.zoom < fill - FILL_SLACK) {
+            viewport = zoomedAbout(videoX, videoY, placement.x.toPixel(videoX, v.zoom, v.left), placement.y.toPixel(videoY, v.zoom, v.top), fill)
         } else {
-            Viewport()
+            viewport = Viewport()
+            // Back at 1x with the keyboard up, the point being typed at goes above the row again, as after a reset.
+            keyboardMargin?.let(::lift)
         }
         if (mode == TouchMode.TRACKPAD) cursorInsideBand(out)
     }
@@ -708,6 +784,8 @@ class GestureRecognizer(
 
     private val threeFingerDrag get() = mode == TouchMode.TRACKPAD && map[Gesture.THREE_FINGER_DRAG] == GestureAction.Drag
 
+    private val threeFingerPan get() = mode == TouchMode.DIRECT && map[Gesture.THREE_FINGER_DRAG] == GestureAction.Pan
+
     /**
      * Only before the two fingers moved past the slop: once they did, the third finger joins them.
      * A grab waits [THREE_DRAG_WAIT] for a fourth finger, so a four-finger swipe never grabs.
@@ -729,6 +807,11 @@ class GestureRecognizer(
         if (lifted || s.fingers.size != 3) return
         val (x, y) = center(s)
         if (hypot(x - refX, y - refY) > slop) threeMoved = true
+        if (threeFingerPan) {
+            if (!threeMoved) return
+            moveView(x - lastX, y - lastY)
+            return track(x, y, s.time)
+        }
         if (!threeFingerDrag) return
         lastSpeed = speedOf(x, y, s.time)
         track(x, y, s.time)
@@ -794,6 +877,7 @@ class GestureRecognizer(
             }
             GestureAction.RadialMenu -> {
                 val (px, py) = videoAt(x, y)
+                if (mode == TouchMode.DIRECT) anchor = px to py
                 events += GestureEvent.RadialOpened(x, y, px, py)
                 events += GestureEvent.RadialReleased(x, y)
             }
@@ -1040,16 +1124,21 @@ class GestureRecognizer(
         events += GestureEvent.FlingEnded
     }
 
-    // MARK: following the finger or the cursor when zoomed
+    // MARK: following the finger or the cursor where the video runs past the screen
 
-    /** A direct-mode drag with the finger in the edge band of the video on screen pans the viewport every [PAN_STEP]. */
+    /**
+     * A direct-mode drag with the finger in the edge band of the video on screen pans the viewport
+     * every [PAN_STEP], zoomed or with the soft keyboard up; an axis with nothing to pan to has no band.
+     * An unmoved press pans only once it outlasts a tap: the band lies right above the key row, where
+     * the field being typed in was just lifted, and a slow tap there would otherwise drag.
+     */
     private fun armPan(now: Long) {
-        val panning = mode == TouchMode.DIRECT && phase == Phase.NORMAL && pressed && viewport.zoom > 1f && edgeDepth(lastX, lastY) != (0f to 0f)
+        val panning = mode == TouchMode.DIRECT && phase == Phase.NORMAL && pressed && edgeDepth(lastX, lastY) != (0f to 0f)
         if (!panning) {
             panDeadline = null
         } else if (panDeadline == null) {
-            pannedAt = now
-            panDeadline = now + PAN_STEP
+            pannedAt = if (moved) now else max(now, downAt + TAP_MAX - PAN_STEP)
+            panDeadline = pannedAt + PAN_STEP
         }
     }
 
@@ -1136,6 +1225,7 @@ class GestureRecognizer(
             GestureAction.Drag -> arm()
             GestureAction.RadialMenu -> {
                 phase = Phase.MENU
+                if (mode == TouchMode.DIRECT) anchor = tapX() to tapY()
                 events += GestureEvent.RadialOpened(lastX, lastY, tapX(), tapY())
             }
             else -> {}

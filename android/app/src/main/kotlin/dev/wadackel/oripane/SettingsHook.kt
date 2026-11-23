@@ -74,7 +74,7 @@ object SettingsHook {
         if (parts.size != 4 || parts[0] != "touch" || parts[1] != "map") return null
         val mode = TouchMode.entries.firstOrNull { it.key == parts[2] } ?: return null
         val gesture = Gesture.entries.firstOrNull { it.key == parts[3] } ?: return null
-        val action = TouchMap.action(gesture, value) ?: return null
+        val action = TouchMap.action(gesture, value, mode) ?: return null
         return Triple(mode, gesture, action)
     }
 

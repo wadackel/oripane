@@ -194,6 +194,9 @@ light screen and a dark one alike.
   a red power button. Then two surfaces of one-line 48 dp rows: what acts now (Show keyboard, Reset
   zoom while zoomed, Mac controls ›) and what opens a page (Display mode with its value ›, Live
   settings ›).
+- **Key row:** a `surface1` bar above the soft keyboard with the 1 px top highlight; its keys are
+  48 × 40 dp. A part that can be dragged as a whole, as the row moves the video, says so with a grip:
+  a 28 × 3 dp `textFaint` pill centred on its top edge, inside its padding and clear of what it holds.
 - **Scroll bands:** the halftone bands stay as shipped (`ScrollBands.kt`): the dots swell in the
   middle and taper to the ends and the inner side. Their ink comes from the video, never the brand.
 

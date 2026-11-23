@@ -140,7 +140,9 @@ data class Viewport(val zoom: Float = 1f, val left: Float = 0f, val top: Float =
 /**
  * The frame, [frameW] by [frameH] pixels, at ([frameX], [frameY]) on a screen of [screenW] by
  * [screenH]. The frame's own position is kept rather than half the difference of the sizes:
- * `FrameLayout` centres by integer division, half a pixel off.
+ * `FrameLayout` centres by integer division, half a pixel off. Only the screen's top [visibleH]
+ * pixels show the video, the rest lying under the soft keyboard and its key row; the frame stays
+ * where it is, so the keyboard coming and going moves nothing but the viewport.
  */
 data class Placement(
     val frameW: Float,
@@ -149,15 +151,23 @@ data class Placement(
     val screenH: Float = frameH,
     val frameX: Float = 0f,
     val frameY: Float = 0f,
+    val visibleH: Float = screenH,
 ) {
     val x get() = PlacementAxis(frameW, screenW, frameX)
-    val y get() = PlacementAxis(frameH, screenH, frameY)
+    val y get() = PlacementAxis(frameH, screenH, frameY, visibleH)
 
-    /** The zoom at which the video just covers the screen, its black bars gone; 1 with no bars. */
-    val fillZoom get() = max(x.ratio, y.ratio)
+    /** This placement with the whole screen showing, as with the soft keyboard down. */
+    fun withoutKeyboard() = copy(visibleH = screenH)
 
-    /** 4, or more where filling the screen needs more. */
-    val maxZoom get() = max(MAX_ZOOM, fillZoom)
+    /** The zoom at which the video just covers the part of the screen that shows it, its black bars gone; 1 with no bars. */
+    val fillZoom get() = max(1f, max(x.ratio, y.ratio))
+
+    /**
+     * 4, or more where filling the screen needs more. The whole screen counts, keyboard or not:
+     * opening the keyboard would otherwise cut a zoom made to fill the screen, which closing it
+     * could no longer give back.
+     */
+    val maxZoom get() = max(MAX_ZOOM, withoutKeyboard().fillZoom)
 
     companion object {
         const val MAX_ZOOM = 4f
@@ -166,28 +176,37 @@ data class Placement(
 
 /**
  * One axis of a [Placement]. An axis whose screen is unknown, or smaller than the frame, or whose
- * frame is empty, counts as a screen the size of the frame.
+ * frame is empty, counts as a screen the size of the frame. The video shows on the screen's first
+ * [visibleEnd] pixels, all of it unless the soft keyboard covers the rest; [ratio] is that part
+ * against the frame, below 1 when the keyboard covers some of the frame.
  */
-class PlacementAxis(val frame: Float, screen: Float, offset: Float) {
+class PlacementAxis(val frame: Float, screen: Float, offset: Float, visibleEnd: Float = screen) {
     private val measured = frame > 0f && screen >= frame
     val screen = if (measured) screen else frame
     val offset = if (measured) offset else 0f
-    val ratio = if (measured) screen / frame else 1f
+    val visibleEnd = if (measured) visibleEnd.coerceIn(0f, screen) else frame
+    val ratio = if (measured) this.visibleEnd / frame else 1f
 
     /** The share of the video the screen shows at [zoom]: all of it while the zoomed video fits. */
     fun visible(zoom: Float) = min(1f, ratio / zoom)
 
     /**
-     * Where the zoomed video starts, from the frame's start. Once it is larger than the screen its
-     * edges stay off screen; until then it is centred on the frame. Both are -0 at 1x, as the
-     * frame-only transform always was.
+     * Where the zoomed video starts, from the frame's start. Once it is larger than the part that
+     * shows it, its edges stay off that part; until then it is centred on the frame, or as near as
+     * it can be above the keyboard. Both are -0 at 1x without a keyboard, as the frame-only
+     * transform always was.
      */
-    fun translation(zoom: Float, start: Float) = if (zoom >= ratio) -start * zoom * frame - offset else -(frame * (zoom - 1f)) / 2f
+    fun translation(zoom: Float, start: Float): Float {
+        if (zoom >= ratio) return -start * zoom * frame - offset
+        val centred = -(frame * (zoom - 1f)) / 2f
+        val past = offset + centred + zoom * frame - visibleEnd
+        return if (past > 0f) centred - past else centred
+    }
 
     /** The pixels, from the frame's start, where the video shows on screen. */
     fun shown(zoom: Float, start: Float): Pair<Float, Float> {
         val from = translation(zoom, start) + offset
-        return max(0f, from) - offset to min(screen, from + zoom * frame) - offset
+        return max(0f, from) - offset to min(visibleEnd, from + zoom * frame) - offset
     }
 
     fun toVideo(px: Float, zoom: Float, start: Float): Float {
@@ -202,7 +221,7 @@ class PlacementAxis(val frame: Float, screen: Float, offset: Float) {
     /** The start that puts the video point [v] at the pixel [px], before clamping. */
     fun startFor(v: Float, px: Float, zoom: Float): Float {
         if (frame <= 0f) return 0f
-        return v - (px + offset).coerceIn(0f, screen) / (zoom * frame)
+        return v - (px + offset).coerceIn(0f, visibleEnd) / (zoom * frame)
     }
 }
 

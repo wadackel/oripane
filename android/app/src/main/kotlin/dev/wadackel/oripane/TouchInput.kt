@@ -21,12 +21,13 @@ import kotlin.math.abs
  *
  * Events arrive in the coordinates of [view]'s parent, which covers the whole screen, and are
  * measured from [view], the frame the video fills at 1x. Zoomed, the video spreads over the parent
- * too, so the recognizer gets both: the frame's size and where it sits on the screen.
+ * too, so the recognizer gets both: the frame's size and where it sits on the screen. While the soft
+ * keyboard is up ([setKeyboard]) the screen ends at its key row, and the scroll bands move above it.
  */
 class TouchInput(
     private val view: View,
     settings: Settings = Settings.defaults,
-    /** Called with every new viewport: from a pinch, a pan, Fill screen, [setViewport], or a new size of the frame or the screen. */
+    /** Called with every new viewport or [placement]: a pinch, a pan, Fill screen, [setViewport], a new size of the frame or the screen, the keyboard. */
     private val onViewport: (Viewport) -> Unit = {},
     /** A gesture ran a radial menu entry that the phone does not carry out itself: a key, a Mac action, the keyboard. */
     private val onCommand: (RadialEntry) -> Unit = {},
@@ -41,7 +42,18 @@ class TouchInput(
     private val config = ViewConfiguration.get(view.context)
     private var settings = settings
     private var recognizer = recognizer(settings)
-    private var placement = Placement(0f, 0f)
+    /** The frame on the screen, ending at the key row while the keyboard is up; what the video's transform is drawn from. */
+    var placement = Placement(0f, 0f)
+        private set
+    /**
+     * The key row's top in the parent's pixels while the soft keyboard is up, the parent's height it
+     * was measured on, and the room kept above it for the composition.
+     */
+    private var keyboardTop: Float? = null
+    private var keyboardScreenH = 0f
+    private var keyboardMargin = 0f
+    /** The screen and the frame the picture was last lifted on; null while the keyboard is down. */
+    private var liftedOn: List<Int>? = null
     private var mousePressed = false
     /** The bands in the parent's coordinates, as last reported; until [stripReported], none were, not even none. */
     private var stripArea: ScrollBands? = null
@@ -90,15 +102,41 @@ class TouchInput(
         // Before the callbacks go: emit arms the timer again.
         emit(recognizer.release())
         view.removeCallbacks(timer)
+        val old = recognizer
         recognizer = recognizer(s)
+        recognizer.takeKeyboardFrom(old)
         recognizer.setViewSize(placement)
         recognizer.setViewport(v)
         placeStrip()
         emit(recognizer.onStreamStarted())
     }
 
+    /**
+     * The soft keyboard's key row now starts [top] pixels down the parent, measured on a parent
+     * [screenH] pixels tall, or the keyboard went (null). Opening, and a fold, a turn or a new video
+     * size while open, lift the point being typed at above the row with [margin] pixels to spare; a
+     * keyboard that only changes height keeps the view.
+     */
+    fun setKeyboard(top: Float?, screenH: Float, margin: Float) {
+        keyboardTop = top
+        keyboardScreenH = screenH
+        keyboardMargin = margin
+        place()
+    }
+
+    /** The key row's drag: moves the picture by the finger's travel and sends nothing to the Mac. */
+    fun panBy(dx: Float, dy: Float) {
+        place()
+        emit(recognizer.panBy(dx, dy))
+    }
+
+    /**
+     * A reset of the zoom, from the menu or a new video size. With the keyboard up the point being
+     * typed at is lifted above the key row again, or the new picture would sit with it underneath.
+     */
     fun setViewport(v: Viewport) {
         recognizer.setViewport(v)
+        if (liftedOn != null) emit(recognizer.liftKeyboard(placement, keyboardMargin))
         onViewport(recognizer.viewport)
     }
 
@@ -109,12 +147,34 @@ class TouchInput(
     private fun place() {
         // Before the early return: the system gesture insets change without the frame moving.
         placeStrip()
-        val p = placementOf(view)
-        if (p == placement) return
-        placement = p
-        val before = recognizer.viewport
-        recognizer.setViewSize(p)
-        if (recognizer.viewport != before) onViewport(recognizer.viewport)
+        val parent = view.parent as? View
+        val screenH = parent?.height?.toFloat() ?: 0f
+        val top = keyboardTop
+        val p = placementOf(view, top?.coerceAtMost(screenH))
+        // A fold lays the views out before the key row's new top arrives: lifting on the old top would leave the point under the row.
+        val measured = top != null && top in 0f..screenH && keyboardScreenH == screenH
+        val on = parent?.let { listOf(it.width, it.height, view.width, view.height) }
+        when {
+            measured && liftedOn != on -> {
+                liftedOn = on
+                placement = p
+                log("view keyboard lift top=%.0f".format(top))
+                emit(recognizer.liftKeyboard(p, keyboardMargin))
+            }
+            top == null && liftedOn != null -> {
+                liftedOn = null
+                placement = p
+                log("view keyboard drop")
+                emit(recognizer.dropKeyboard(p))
+            }
+            p == placement -> return
+            else -> {
+                placement = p
+                recognizer.setViewSize(p)
+            }
+        }
+        // The keyboard moves the picture even where the viewport stays, as a video that fits rises above it.
+        onViewport(recognizer.viewport)
     }
 
     /**
@@ -147,11 +207,13 @@ class TouchInput(
         val d = view.resources.displayMetrics.density
         val width = STRIP_WIDTH_DP * d
         val x = if (settings.scrollStrip == ScrollStrip.LEFT) 0f else screen.width - width
-        val lane = StripArea(x, (gestures?.top ?: 0).toFloat(), x + width, (screen.height - (gestures?.bottom ?: 0)).toFloat())
+        // Above the key row while the keyboard is up, where the thumb can still reach them.
+        val floor = keyboardTop?.coerceAtMost(screen.height.toFloat())
+        val lane = StripArea(x, (gestures?.top ?: 0).toFloat(), x + width, floor ?: (screen.height - (gestures?.bottom ?: 0)).toFloat())
         val centre = lane.top + (lane.bottom - lane.top) * settings.stripKnobAt
         val half = VERTICAL_BAND_DP / 2 * d
         val vertical = lane.copy(top = (centre - half).coerceAtLeast(lane.top), bottom = (centre + half).coerceAtMost(lane.bottom))
-        val bottom = (screen.height - (mandatory?.bottom ?: 0)).toFloat()
+        val bottom = floor ?: (screen.height - (mandatory?.bottom ?: 0)).toFloat()
         val mid = screen.width / 2f
         val halfH = HORIZONTAL_BAND_DP / 2 * d
         return ScrollBands(settings.scrollStrip, lane, vertical, StripArea(mid - halfH, bottom - width, mid + halfH, bottom))
@@ -341,15 +403,17 @@ class TouchInput(
     }
 }
 
-/** [frame] on its parent, the area that takes the touches and covers the screen. */
-fun placementOf(frame: View): Placement {
+/** [frame] on its parent, the area that takes the touches and covers the screen, which shows the video down to [keyboardTop] when given. */
+fun placementOf(frame: View, keyboardTop: Float? = null): Placement {
     val screen = frame.parent as? View
+    val screenH = screen?.height?.toFloat() ?: 0f
     return Placement(
         frame.width.toFloat(),
         frame.height.toFloat(),
         screen?.width?.toFloat() ?: 0f,
-        screen?.height?.toFloat() ?: 0f,
+        screenH,
         frame.left.toFloat(),
         frame.top.toFloat(),
+        keyboardTop ?: screenH,
     )
 }
